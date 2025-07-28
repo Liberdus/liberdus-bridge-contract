@@ -11,15 +11,12 @@ contract Liberdus is ERC20, Pausable, ReentrancyGuard, Ownable {
     using ECDSA for bytes32;
 
     enum OperationType {
-        Mint,
-        Burn,
         PostLaunch,
         Pause,
         Unpause,
         SetBridgeInCaller,
         SetBridgeInLimits,
-        UpdateSigner,
-        DistributeTokens
+        UpdateSigner
     }
 
     struct Operation {
@@ -37,10 +34,6 @@ contract Liberdus is ERC20, Pausable, ReentrancyGuard, Ownable {
     uint256 public operationCount;
 
     bool public isPreLaunch = true;
-    uint256 public lastMintTime;
-    uint256 public constant MINT_INTERVAL = 3 weeks + 6 days + 9 hours; // 3.9 weeks
-    uint256 public constant MAX_SUPPLY = 210_000_000 * 10**18;
-    uint256 public constant MINT_AMOUNT = 3_000_000 * 10**18;
     uint256 public constant OPERATION_DEADLINE = 3 days;
 
     address public bridgeInCaller;
@@ -75,21 +68,6 @@ contract Liberdus is ERC20, Pausable, ReentrancyGuard, Ownable {
     event OperationExecuted(
         bytes32 indexed operationId,
         OperationType indexed opType
-    );
-
-    event MintExecuted(
-        bytes32 indexed operationId,
-        address indexed target,
-        uint256 amount,
-        uint256 newTotalSupply,
-        uint256 nextMintTime
-    );
-
-    event BurnExecuted(
-        bytes32 indexed operationId,
-        address indexed target,
-        uint256 amount,
-        uint256 newTotalSupply
     );
 
     event LaunchStateChanged(
@@ -131,13 +109,6 @@ contract Liberdus is ERC20, Pausable, ReentrancyGuard, Ownable {
         bytes32 indexed operationId,
         address indexed oldSigner,
         address indexed newSigner,
-        uint256 timestamp
-    );
-
-    event TokensDistributed(
-        bytes32 indexed operationId,
-        address indexed recipient,
-        uint256 amount,
         uint256 timestamp
     );
 
@@ -244,14 +215,8 @@ contract Liberdus is ERC20, Pausable, ReentrancyGuard, Ownable {
         // Mark as executed before making any external calls
         op.executed = true;
 
-        if (op.opType == OperationType.DistributeTokens) {
-            _executeDistribution(operationId);
-        } else if (op.opType == OperationType.UpdateSigner) {
+        if (op.opType == OperationType.UpdateSigner) {
             _executeUpdateSigner(operationId, op.target, address(uint160(op.value)));
-        } else if (op.opType == OperationType.Mint) {
-            _executeMint(operationId);
-        } else if (op.opType == OperationType.Burn) {
-            _executeBurn(operationId, op.value);
         } else if (op.opType == OperationType.PostLaunch) {
             _executePostLaunch(operationId);
         } else if (op.opType == OperationType.Pause) {
@@ -267,56 +232,6 @@ contract Liberdus is ERC20, Pausable, ReentrancyGuard, Ownable {
         }
 
         emit OperationExecuted(operationId, op.opType);
-    }
-
-    function _executeDistribution(bytes32 operationId) internal {
-        Operation storage op = operations[operationId];
-        require(op.value > 0, "Cannot distribute zero tokens");
-        require(balanceOf(address(this)) >= op.value, "Insufficient contract balance");
-
-        _transfer(address(this), op.target, op.value);
-
-        emit TokensDistributed(
-            operationId,
-            op.target,
-            op.value,
-            block.timestamp
-        );
-    }
-
-    function _executeMint(bytes32 operationId) internal {
-        if (lastMintTime != 0) {
-            require(block.timestamp >= lastMintTime + MINT_INTERVAL, "Mint interval not reached");
-        }
-        require(totalSupply() + MINT_AMOUNT <= MAX_SUPPLY, "Max supply exceeded");
-        require(isPreLaunch, "Mint is not available in after-launch");
-
-        // Mint to contract address instead of target
-        _mint(address(this), MINT_AMOUNT);
-        lastMintTime = block.timestamp;
-
-        emit MintExecuted(
-            operationId,
-            address(this),  // Changed this too to reflect actual recipient
-            MINT_AMOUNT,
-            totalSupply(),
-            lastMintTime + MINT_INTERVAL
-        );
-    }
-
-    function _executeBurn(bytes32 operationId, uint256 amount) internal {
-        require(amount > 0, "Cannot burn zero tokens");
-        require(balanceOf(address(this)) >= amount, "Insufficient contract balance to burn");
-        require(isPreLaunch, "Burn is not available in after-launch");
-
-        _burn(address(this), amount);  // Burn from contract's balance
-
-        emit BurnExecuted(
-            operationId,
-            address(this),
-            amount,
-            totalSupply()
-        );
     }
 
     function _executePostLaunch(bytes32 operationId) internal {
@@ -419,14 +334,6 @@ contract Liberdus is ERC20, Pausable, ReentrancyGuard, Ownable {
 
     function getChainId() public view returns (uint256) {
         return chainId;
-    }
-
-    function getNextMintTime() public view returns (uint256) {
-        return lastMintTime + MINT_INTERVAL;
-    }
-
-    function getRemainingSupply() public view returns (uint256) {
-        return MAX_SUPPLY - totalSupply();
     }
 
     function isOperationExpired(bytes32 operationId) public view returns (bool) {
