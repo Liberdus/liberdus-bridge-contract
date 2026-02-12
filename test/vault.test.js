@@ -265,6 +265,45 @@ describe("Vault", function () {
       ).to.be.revertedWith("Insufficient vault balance");
     });
 
+    it("Should evict oldest txId after 100 bridge-ins", async function () {
+      // Fund vault with enough tokens
+      const extraFunding = ethers.parseUnits("95000", 18);
+      await liberdus.connect(owner).approve(await vault.getAddress(), extraFunding);
+      await vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](extraFunding, recipient.address, chainId, destinationChainId);
+
+      // Set bridgeInCaller
+      await requestAndSignOperation(vault, 2, owner.address, 0, "0x");
+
+      // Set high limit and low cooldown for this test
+      const highLimit = ethers.parseUnits("100000", 18);
+      const zeroCooldown = BigInt(1);
+      const encodedData = ethers.AbiCoder.defaultAbiCoder().encode(['uint256'], [zeroCooldown]);
+      await requestAndSignOperation(vault, 3, ethers.ZeroAddress, highLimit, encodedData);
+
+      const bridgeInAmount = ethers.parseUnits("1", 18);
+      const txIds = [];
+
+      // Do 101 bridge-ins
+      for (let i = 0; i < 101; i++) {
+        const txId = ethers.id(`eviction-test-tx-${i}`);
+        txIds.push(txId);
+
+        await network.provider.send("evm_increaseTime", [2]);
+        await network.provider.send("evm_mine");
+
+        await vault.connect(owner)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, bridgeInAmount, chainId, txId, sourceChainId);
+      }
+
+      // The first txId (index 0) should have been evicted by the 101st bridgeIn
+      expect(await vault.processedTxIds(txIds[0])).to.be.false;
+
+      // The second txId (index 1) should still be processed
+      expect(await vault.processedTxIds(txIds[1])).to.be.true;
+
+      // The last txId should still be processed
+      expect(await vault.processedTxIds(txIds[100])).to.be.true;
+    });
+
     it("Should allow bridge in when paused", async function () {
       // Set bridgeInCaller first
       await requestAndSignOperation(vault, 2, owner.address, 0, "0x");

@@ -41,7 +41,15 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
     uint256 public bridgeInCooldown = 1 minutes;
     uint256 public lastBridgeInTime;
 
+    // Replay protection using a circular buffer of size 100.
+    // Only the 100 most recent bridge-in txIds are stored to bound state growth.
+    // processedTxIds provides O(1) lookup for duplicate detection.
+    // txIdBuffer stores txIds in insertion order; when the buffer is full,
+    // the oldest entry is evicted from both the buffer and the mapping,
+    // keeping storage bounded to 100 entries at all times.
     mapping(bytes32 => bool) public processedTxIds;
+    bytes32[100] public txIdBuffer;
+    uint256 public txIdIndex;
 
     address[4] public signers;
     uint256 public constant REQUIRED_SIGNATURES = 3;
@@ -326,7 +334,18 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
 
         require(token.balanceOf(address(this)) >= amount, "Insufficient vault balance");
 
+        // Evict oldest txId from circular buffer
+        uint256 bufferIndex = txIdIndex % 100;
+        bytes32 oldTxId = txIdBuffer[bufferIndex];
+        if (oldTxId != bytes32(0)) {
+            delete processedTxIds[oldTxId];
+        }
+
+        // Store new txId
+        txIdBuffer[bufferIndex] = txId;
         processedTxIds[txId] = true;
+        txIdIndex++;
+
         lastBridgeInTime = block.timestamp;
 
         require(token.transfer(to, amount), "Token transfer failed");
