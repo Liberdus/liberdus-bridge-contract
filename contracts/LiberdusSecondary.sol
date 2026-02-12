@@ -11,7 +11,6 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
     using ECDSA for bytes32;
 
     enum OperationType {
-        PostLaunch,
         Pause,
         Unpause,
         SetBridgeInCaller,
@@ -33,7 +32,6 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
     mapping(bytes32 => Operation) public operations;
     uint256 public operationCount;
 
-    bool public isPreLaunch = true;
     uint256 public constant OPERATION_DEADLINE = 3 days;
 
     address public bridgeInCaller;
@@ -69,12 +67,6 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
     event OperationExecuted(
         bytes32 indexed operationId,
         OperationType indexed opType
-    );
-
-    event LaunchStateChanged(
-        bytes32 indexed operationId,
-        bool isPreLaunch,
-        uint256 timestamp
     );
 
     event BridgeInCallerUpdated(
@@ -220,8 +212,6 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
 
         if (op.opType == OperationType.UpdateSigner) {
             _executeUpdateSigner(operationId, op.target, address(uint160(op.value)));
-        } else if (op.opType == OperationType.PostLaunch) {
-            _executePostLaunch(operationId);
         } else if (op.opType == OperationType.Pause) {
             _pause();
         } else if (op.opType == OperationType.Unpause) {
@@ -235,16 +225,6 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
         }
 
         emit OperationExecuted(operationId, op.opType);
-    }
-
-    function _executePostLaunch(bytes32 operationId) internal {
-        require(isPreLaunch, "Already in post-launch mode");
-        isPreLaunch = false;
-        emit LaunchStateChanged(
-            operationId,
-            isPreLaunch,
-            block.timestamp
-        );
     }
 
     function _executeSetBridgeInCaller(bytes32 operationId, address newCaller) internal {
@@ -294,7 +274,6 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
     }
 
     function bridgeOut(uint256 amount, address targetAddress, uint256 _chainId, uint256 destinationChainId) public whenNotPaused {
-        require(!isPreLaunch, "Bridge out not available in pre-launch");
         require(_chainId == chainId, "Invalid chain ID");
         if (destinationChainId != DEFAULT_CHAIN_ID) {
             require(destinationChainId != _chainId, "Destination chain must differ from source chain");
@@ -310,7 +289,6 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
     }
 
     function bridgeIn(address to, uint256 amount, uint256 _chainId, bytes32 txId, uint256 sourceChainId) public onlyBridgeInCaller whenNotPaused {
-        require(!isPreLaunch, "Bridge in not available in pre-launch");
         require(_chainId == chainId, "Invalid chain ID");
         require(amount > 0, "Cannot bridge in zero tokens");
         require(amount <= maxBridgeInAmount, "Amount exceeds bridge-in limit");
