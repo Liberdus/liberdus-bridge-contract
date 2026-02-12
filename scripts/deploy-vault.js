@@ -9,7 +9,7 @@ async function main() {
 
   const [deployer] = await hre.ethers.getSigners();
 
-  console.log("Deploying BridgeVault with the account:", deployer.address);
+  console.log("Deploying Vault with the account:", deployer.address);
   console.log(
     "Account balance:",
     (await deployer.provider.getBalance(deployer.address)).toString(),
@@ -28,14 +28,14 @@ async function main() {
   console.log("Using chainId:", chainId);
   console.log("Using signers:", signerAddresses);
 
-  // Deploy BridgeVault
-  const BridgeVault = await hre.ethers.getContractFactory("BridgeVault");
-  const vault = await BridgeVault.deploy(TOKEN_ADDRESS, signerAddresses, chainId);
+  // Deploy Vault
+  const Vault = await hre.ethers.getContractFactory("Vault");
+  const vault = await Vault.deploy(TOKEN_ADDRESS, signerAddresses, chainId);
 
   await vault.waitForDeployment();
 
   const contractAddress = await vault.getAddress();
-  console.log("BridgeVault deployed to:", contractAddress);
+  console.log("Vault deployed to:", contractAddress);
   console.log("Initial signers:");
   signerAddresses.forEach((signer, index) => {
     console.log(`  Signer ${index + 1}:`, signer);

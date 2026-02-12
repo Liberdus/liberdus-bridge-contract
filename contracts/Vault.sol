@@ -7,15 +7,16 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract BridgeVault is Pausable, ReentrancyGuard, Ownable {
+contract Vault is Pausable, ReentrancyGuard, Ownable {
     using ECDSA for bytes32;
 
     enum OperationType {
         Pause,
         Unpause,
-        SetReleaseCaller,
-        SetReleaseLimits,
-        UpdateSigner
+        SetBridgeInCaller,
+        SetBridgeInLimits,
+        UpdateSigner,
+        RelinquishTokens
     }
 
     struct Operation {
@@ -35,10 +36,10 @@ contract BridgeVault is Pausable, ReentrancyGuard, Ownable {
     uint256 public constant OPERATION_DEADLINE = 3 days;
 
     IERC20 public immutable token;
-    address public releaseCaller;
-    uint256 public maxReleaseAmount = 10_000 * 10**18;
-    uint256 public releaseCooldown = 1 minutes;
-    uint256 public lastReleaseTime;
+    address public bridgeInCaller;
+    uint256 public maxBridgeInAmount = 10_000 * 10**18;
+    uint256 public bridgeInCooldown = 1 minutes;
+    uint256 public lastBridgeInTime;
 
     mapping(bytes32 => bool) public processedTxIds;
 
@@ -72,17 +73,35 @@ contract BridgeVault is Pausable, ReentrancyGuard, Ownable {
         OperationType indexed opType
     );
 
-    event ReleaseCallerUpdated(
+    event BridgeInCallerUpdated(
         bytes32 indexed operationId,
         address indexed newCaller,
         uint256 timestamp
     );
 
-    event ReleaseLimitsUpdated(
+    event BridgeInLimitsUpdated(
         bytes32 indexed operationId,
         uint256 newMaxAmount,
         uint256 newCooldown,
         uint256 timestamp
+    );
+
+    event BridgedOut(
+        address indexed from,
+        uint256 amount,
+        address indexed targetAddress,
+        uint256 indexed chainId,
+        uint256 timestamp,
+        uint256 destinationChainId
+    );
+
+    event BridgedIn(
+        address indexed to,
+        uint256 amount,
+        uint256 indexed chainId,
+        bytes32 indexed txId,
+        uint256 timestamp,
+        uint256 sourceChainId
     );
 
     event SignerUpdated(
@@ -92,22 +111,10 @@ contract BridgeVault is Pausable, ReentrancyGuard, Ownable {
         uint256 timestamp
     );
 
-    event TokensLocked(
-        address indexed from,
-        uint256 amount,
-        address indexed targetAddress,
-        uint256 indexed chainId,
-        uint256 timestamp,
-        uint256 destinationChainId
-    );
-
-    event TokensReleased(
+    event TokensRelinquished(
         address indexed to,
         uint256 amount,
-        uint256 indexed chainId,
-        bytes32 indexed txId,
-        uint256 timestamp,
-        uint256 sourceChainId
+        uint256 timestamp
     );
 
     modifier onlySigner() {
@@ -115,8 +122,8 @@ contract BridgeVault is Pausable, ReentrancyGuard, Ownable {
         _;
     }
 
-    modifier onlyReleaseCaller() {
-        require(msg.sender == releaseCaller, "Not authorized to release");
+    modifier onlyBridgeInCaller() {
+        require(msg.sender == bridgeInCaller, "Not authorized to bridge in");
         _;
     }
 
@@ -133,9 +140,6 @@ contract BridgeVault is Pausable, ReentrancyGuard, Ownable {
         token = IERC20(_token);
         signers = _signers;
         chainId = _chainId;
-
-        // [TOD0] Remove these lines before deploying to production
-        // releaseCaller = _signers[0]; // For development purposes
     }
 
     // --------- MULTI-SIG OPERATIONS ---------
@@ -188,6 +192,7 @@ contract BridgeVault is Pausable, ReentrancyGuard, Ownable {
         require(block.timestamp <= op.deadline, "Operation deadline passed");
 
         bytes32 messageHash = getOperationHash(operationId);
+        // Add Ethereum Signed Message prefix
         bytes32 prefixedHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash));
         address signer = ECDSA.recover(prefixedHash, signature);
 
@@ -216,6 +221,7 @@ contract BridgeVault is Pausable, ReentrancyGuard, Ownable {
         Operation storage op = operations[operationId];
         require(!op.executed, "Operation already executed");
 
+        // Mark as executed before making any external calls
         op.executed = true;
 
         if (op.opType == OperationType.UpdateSigner) {
@@ -224,10 +230,12 @@ contract BridgeVault is Pausable, ReentrancyGuard, Ownable {
             _pause();
         } else if (op.opType == OperationType.Unpause) {
             _unpause();
-        } else if (op.opType == OperationType.SetReleaseCaller) {
-            _executeSetReleaseCaller(operationId, op.target);
-        } else if (op.opType == OperationType.SetReleaseLimits) {
-            _executeSetReleaseLimits(operationId, op.value, abi.decode(op.data, (uint256)));
+        } else if (op.opType == OperationType.SetBridgeInCaller) {
+            _executeSetBridgeInCaller(operationId, op.target);
+        } else if (op.opType == OperationType.SetBridgeInLimits) {
+            _executeSetBridgeInLimits(operationId, op.value, abi.decode(op.data, (uint256)));
+        } else if (op.opType == OperationType.RelinquishTokens) {
+            _executeRelinquishTokens();
         } else {
             revert("Unknown operation type");
         }
@@ -235,19 +243,28 @@ contract BridgeVault is Pausable, ReentrancyGuard, Ownable {
         emit OperationExecuted(operationId, op.opType);
     }
 
-    function _executeSetReleaseCaller(bytes32 operationId, address newCaller) internal {
-        require(newCaller != address(0), "Invalid release caller");
-        require(newCaller != releaseCaller, "Release caller already set");
-        releaseCaller = newCaller;
-        emit ReleaseCallerUpdated(operationId, newCaller, block.timestamp);
+    function _executeSetBridgeInCaller(bytes32 operationId, address newCaller) internal {
+        require(newCaller != address(0), "Invalid bridge-in caller");
+        require(newCaller != bridgeInCaller, "Bridge-in caller already set");
+        bridgeInCaller = newCaller;
+        emit BridgeInCallerUpdated(
+            operationId,
+            newCaller,
+            block.timestamp
+        );
     }
 
-    function _executeSetReleaseLimits(bytes32 operationId, uint256 newMaxAmount, uint256 newCooldown) internal {
+    function _executeSetBridgeInLimits(bytes32 operationId, uint256 newMaxAmount, uint256 newCooldown) internal {
         require(newMaxAmount > 0, "Max amount must be greater than zero");
         require(newCooldown > 0, "Cooldown must be greater than zero");
-        maxReleaseAmount = newMaxAmount;
-        releaseCooldown = newCooldown;
-        emit ReleaseLimitsUpdated(operationId, newMaxAmount, newCooldown, block.timestamp);
+        maxBridgeInAmount = newMaxAmount;
+        bridgeInCooldown = newCooldown;
+        emit BridgeInLimitsUpdated(
+            operationId,
+            newMaxAmount,
+            newCooldown,
+            block.timestamp
+        );
     }
 
     function _executeUpdateSigner(bytes32 operationId, address oldSigner, address newSigner) internal {
@@ -260,48 +277,61 @@ contract BridgeVault is Pausable, ReentrancyGuard, Ownable {
                 break;
             }
         }
-        emit SignerUpdated(operationId, oldSigner, newSigner, block.timestamp);
+        emit SignerUpdated(
+            operationId,
+            oldSigner,
+            newSigner,
+            block.timestamp
+        );
+    }
+    function _executeRelinquishTokens() internal {
+        uint256 balance = token.balanceOf(address(this));
+        require(balance > 0, "No tokens to relinquish");
+        require(token.transfer(address(token), balance), "Token transfer failed");
+        emit TokensRelinquished(address(token), balance, block.timestamp);
     }
 
-    // --------- LOCK & RELEASE ---------
+    // --------- BRIDGE OUT & BRIDGE IN ---------
 
-    function lockTokens(uint256 amount, address targetAddress, uint256 _chainId) public whenNotPaused {
-        lockTokens(amount, targetAddress, _chainId, DEFAULT_CHAIN_ID);
+    function bridgeOut(uint256 amount, address targetAddress, uint256 _chainId) public whenNotPaused {
+        bridgeOut(amount, targetAddress, _chainId, DEFAULT_CHAIN_ID);
     }
 
-    function lockTokens(uint256 amount, address targetAddress, uint256 _chainId, uint256 destinationChainId) public whenNotPaused {
-        require(amount > 0, "Cannot lock zero tokens");
-        require(targetAddress != address(0), "Invalid target address");
+    function bridgeOut(uint256 amount, address targetAddress, uint256 _chainId, uint256 destinationChainId) public whenNotPaused {
         require(_chainId == chainId, "Invalid chain ID");
         if (destinationChainId != DEFAULT_CHAIN_ID) {
             require(destinationChainId != _chainId, "Destination chain must differ from source chain");
         }
+        require(amount > 0, "Cannot bridge out zero tokens");
+        require(targetAddress != address(0), "Invalid target address");
+        require(amount <= token.balanceOf(msg.sender), "Insufficient balance");
 
         require(token.transferFrom(msg.sender, address(this), amount), "Token transfer failed");
 
-        emit TokensLocked(msg.sender, amount, targetAddress, _chainId, block.timestamp, destinationChainId);
+        emit BridgedOut(msg.sender, amount, targetAddress, _chainId, block.timestamp, destinationChainId);
     }
 
-    function releaseTokens(address to, uint256 amount, uint256 _chainId, bytes32 txId) public onlyReleaseCaller whenNotPaused {
-        releaseTokens(to, amount, _chainId, txId, DEFAULT_CHAIN_ID);
+    function bridgeIn(address to, uint256 amount, uint256 _chainId, bytes32 txId) public onlyBridgeInCaller {
+        bridgeIn(to, amount, _chainId, txId, DEFAULT_CHAIN_ID);
     }
 
-    function releaseTokens(address to, uint256 amount, uint256 _chainId, bytes32 txId, uint256 sourceChainId) public onlyReleaseCaller whenNotPaused nonReentrant {
-        require(amount > 0, "Cannot release zero tokens");
-        require(to != address(0), "Invalid recipient address");
+    function bridgeIn(address to, uint256 amount, uint256 _chainId, bytes32 txId, uint256 sourceChainId) public onlyBridgeInCaller nonReentrant {
+
         require(_chainId == chainId, "Invalid chain ID");
-        require(amount <= maxReleaseAmount, "Amount exceeds release limit");
-        require(block.timestamp >= lastReleaseTime + releaseCooldown, "Release cooldown not met");
+        require(amount > 0, "Cannot bridge in zero tokens");
+        require(to != address(0), "Invalid recipient address");
+        require(amount <= maxBridgeInAmount, "Amount exceeds bridge-in limit");
+        require(block.timestamp >= lastBridgeInTime + bridgeInCooldown, "Bridge-in cooldown not met");
         require(!processedTxIds[txId], "Transaction already processed");
 
         require(token.balanceOf(address(this)) >= amount, "Insufficient vault balance");
 
         processedTxIds[txId] = true;
-        lastReleaseTime = block.timestamp;
+        lastBridgeInTime = block.timestamp;
 
         require(token.transfer(to, amount), "Token transfer failed");
 
-        emit TokensReleased(to, amount, _chainId, txId, block.timestamp, sourceChainId);
+        emit BridgedIn(to, amount, _chainId, txId, block.timestamp, sourceChainId);
     }
 
     // --------- HELPER FUNCTIONS ---------
