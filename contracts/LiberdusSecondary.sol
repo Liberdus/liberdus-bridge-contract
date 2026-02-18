@@ -15,7 +15,9 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
         Unpause,
         SetBridgeInCaller,
         SetBridgeInLimits,
-        UpdateSigner
+        UpdateSigner,
+        SetBridgeInEnabled,
+        SetBridgeOutEnabled
     }
 
     struct Operation {
@@ -38,6 +40,8 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
     uint256 public maxBridgeInAmount = 10_000 * 10**18;
     uint256 public bridgeInCooldown = 1 minutes;
     uint256 public lastBridgeInTime;
+    bool public bridgeInEnabled = true;
+    bool public bridgeOutEnabled = true;
 
     address[4] public signers;
     uint256 public constant REQUIRED_SIGNATURES = 3;
@@ -104,6 +108,18 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
         bytes32 indexed operationId,
         address indexed oldSigner,
         address indexed newSigner,
+        uint256 timestamp
+    );
+
+    event BridgeInStatusUpdated(
+        bytes32 indexed operationId,
+        bool enabled,
+        uint256 timestamp
+    );
+
+    event BridgeOutStatusUpdated(
+        bytes32 indexed operationId,
+        bool enabled,
         uint256 timestamp
     );
 
@@ -220,6 +236,10 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
             _executeSetBridgeInCaller(operationId, op.target);
         } else if (op.opType == OperationType.SetBridgeInLimits) {
             _executeSetBridgeInLimits(operationId, op.value, abi.decode(op.data, (uint256)));
+        } else if (op.opType == OperationType.SetBridgeInEnabled) {
+            _executeSetBridgeInEnabled(operationId, abi.decode(op.data, (bool)));
+        } else if (op.opType == OperationType.SetBridgeOutEnabled) {
+            _executeSetBridgeOutEnabled(operationId, abi.decode(op.data, (bool)));
         } else {
             revert("Unknown operation type");
         }
@@ -269,11 +289,24 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
         );
     }
 
+    function _executeSetBridgeInEnabled(bytes32 operationId, bool enabled) internal {
+        require(enabled != bridgeInEnabled, "Bridge-in status already set");
+        bridgeInEnabled = enabled;
+        emit BridgeInStatusUpdated(operationId, enabled, block.timestamp);
+    }
+
+    function _executeSetBridgeOutEnabled(bytes32 operationId, bool enabled) internal {
+        require(enabled != bridgeOutEnabled, "Bridge-out status already set");
+        bridgeOutEnabled = enabled;
+        emit BridgeOutStatusUpdated(operationId, enabled, block.timestamp);
+    }
+
     function bridgeOut(uint256 amount, address targetAddress, uint256 _chainId) public whenNotPaused {
         bridgeOut(amount, targetAddress, _chainId, DEFAULT_CHAIN_ID);
     }
 
     function bridgeOut(uint256 amount, address targetAddress, uint256 _chainId, uint256 destinationChainId) public whenNotPaused {
+        require(bridgeOutEnabled, "Bridge-out disabled");
         require(_chainId == chainId, "Invalid chain ID");
         if (destinationChainId != DEFAULT_CHAIN_ID) {
             require(destinationChainId != _chainId, "Destination chain must differ from source chain");
@@ -290,6 +323,7 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
     }
 
     function bridgeIn(address to, uint256 amount, uint256 _chainId, bytes32 txId, uint256 sourceChainId) public onlyBridgeInCaller whenNotPaused {
+        require(bridgeInEnabled, "Bridge-in disabled");
         require(_chainId == chainId, "Invalid chain ID");
         require(amount > 0, "Cannot bridge in zero tokens");
         require(amount <= maxBridgeInAmount, "Amount exceeds bridge-in limit");
