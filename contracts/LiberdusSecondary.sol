@@ -41,8 +41,8 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
     uint256 public bridgeInCooldown = 1 minutes;
     uint256 public lastBridgeInTime;
     bool public bridgeInEnabled = true;
-    bool public bridgeOutEnabled = true;
-
+    bool public bridgeOutEnabled = false; // Set to true after Liberdus Mainnet launch
+ 
     address[4] public signers;
     uint256 public constant REQUIRED_SIGNATURES = 3;
     uint256 public constant DEFAULT_CHAIN_ID = 0; // Reserved for Liberdus Network
