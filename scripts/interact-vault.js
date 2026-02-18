@@ -1,5 +1,12 @@
 const hre = require("hardhat");
 const { ethers } = hre;
+const OP = Object.freeze({
+  PAUSE: 0,
+  UNPAUSE: 1,
+  SET_BRIDGE_IN_CALLER: 2,
+  RELINQUISH_TOKENS: 5,
+  SET_BRIDGE_OUT_ENABLED: 6,
+});
 
 async function requestAndSignOperation(contract, signers, operationType, target, value, data) {
   const tx = await contract.requestOperation(operationType, target, value, data);
@@ -24,7 +31,7 @@ async function requestAndSignOperation(contract, signers, operationType, target,
 async function main() {
   const VAULT_ADDRESS = process.env.VAULT_ADDRESS;
   const LIBERDUS_ADDRESS = process.env.LIBERDUS_TOKEN_ADDRESS;
-  const ACTION = process.env.ACTION || "balance"; // balance, bridgeOut, bridgeIn, relinquish, setBridgeInCaller, pause, unpause
+  const ACTION = process.env.ACTION || "balance"; // balance, bridgeOut, bridgeIn, relinquish, setBridgeInCaller, setBridgeOutEnabled, pause, unpause
 
   if (!VAULT_ADDRESS) {
     throw new Error("Set VAULT_ADDRESS in your .env file");
@@ -56,6 +63,9 @@ async function main() {
 
     const bridgeInCooldown = await vault.bridgeInCooldown();
     console.log(`Bridge In Cooldown: ${Number(bridgeInCooldown)}s`);
+
+    const bridgeOutEnabled = await vault.bridgeOutEnabled();
+    console.log(`Bridge Out Enabled: ${bridgeOutEnabled}`);
 
     for (const account of [
       { name: "Deployer", address: deployer.address },
@@ -129,9 +139,30 @@ async function main() {
     }
 
     console.log(`\nSetting bridge in caller to ${newCaller}...`);
-    // SetBridgeInCaller is OperationType 2
-    await requestAndSignOperation(vault, signers, 2, newCaller, 0, "0x");
+    await requestAndSignOperation(vault, signers, OP.SET_BRIDGE_IN_CALLER, newCaller, 0, "0x");
     console.log(`Bridge In Caller set to: ${await vault.bridgeInCaller()}`);
+    return;
+  }
+
+  // --- SET BRIDGE OUT ENABLED ---
+  if (ACTION === "setBridgeOutEnabled") {
+    const enabledRaw = process.env.BRIDGE_OUT_ENABLED;
+    if (enabledRaw === undefined) {
+      throw new Error("Set BRIDGE_OUT_ENABLED=true|false in your .env file");
+    }
+    const normalized = String(enabledRaw).trim().toLowerCase();
+    if (!["true", "false", "1", "0"].includes(normalized)) {
+      throw new Error("BRIDGE_OUT_ENABLED must be one of: true, false, 1, 0");
+    }
+    const enabled = normalized === "true" || normalized === "1";
+    const current = await vault.bridgeOutEnabled();
+    if (current === enabled) {
+      console.log(`Bridge Out Enabled already ${enabled}, skipping.`);
+      return;
+    }
+    const data = ethers.AbiCoder.defaultAbiCoder().encode(["bool"], [enabled]);
+    await requestAndSignOperation(vault, signers, OP.SET_BRIDGE_OUT_ENABLED, ethers.ZeroAddress, 0, data);
+    console.log(`Bridge Out Enabled set to: ${await vault.bridgeOutEnabled()}`);
     return;
   }
 
@@ -141,8 +172,7 @@ async function main() {
     console.log(`\nVault Balance: ${ethers.formatUnits(vaultBalance, 18)} LIB`);
     console.log("Relinquishing all tokens to Liberdus contract...");
 
-    // RelinquishTokens is OperationType 5
-    await requestAndSignOperation(vault, signers, 5, ethers.ZeroAddress, 0, "0x");
+    await requestAndSignOperation(vault, signers, OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x");
 
     console.log(`Vault Balance after relinquish: ${ethers.formatUnits(await vault.getVaultBalance(), 18)} LIB`);
     return;
@@ -151,8 +181,7 @@ async function main() {
   // --- PAUSE ---
   if (ACTION === "pause") {
     console.log("\nPausing vault...");
-    // Pause is OperationType 0
-    await requestAndSignOperation(vault, signers, 0, ethers.ZeroAddress, 0, "0x");
+    await requestAndSignOperation(vault, signers, OP.PAUSE, ethers.ZeroAddress, 0, "0x");
     console.log("Vault paused.");
     return;
   }
@@ -160,13 +189,12 @@ async function main() {
   // --- UNPAUSE ---
   if (ACTION === "unpause") {
     console.log("\nUnpausing vault...");
-    // Unpause is OperationType 1
-    await requestAndSignOperation(vault, signers, 1, ethers.ZeroAddress, 0, "0x");
+    await requestAndSignOperation(vault, signers, OP.UNPAUSE, ethers.ZeroAddress, 0, "0x");
     console.log("Vault unpaused.");
     return;
   }
 
-  console.error(`Unknown action: ${ACTION}. Use one of: balance, bridgeOut, bridgeIn, setBridgeInCaller, relinquish, pause, unpause`);
+  console.error(`Unknown action: ${ACTION}. Use one of: balance, bridgeOut, bridgeIn, setBridgeInCaller, setBridgeOutEnabled, relinquish, pause, unpause`);
 }
 
 main()

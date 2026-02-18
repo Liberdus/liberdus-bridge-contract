@@ -5,6 +5,9 @@ const SECONDARY_OP = Object.freeze({
   SET_BRIDGE_IN_CALLER: 2,
   SET_BRIDGE_OUT_ENABLED: 6,
 });
+const VAULT_OP = Object.freeze({
+  SET_BRIDGE_IN_CALLER: 2,
+});
 
 async function main() {
   const [deployer, signer1, signer2, signer3] = await hre.ethers.getSigners();
@@ -119,7 +122,7 @@ async function main() {
 
   // Set Vault BridgeInCaller (OpType 2)
   console.log("Setting Vault BridgeInCaller to deployer...");
-  await requestAndSignOperation(vault, 2, deployer.address, 0, "0x");
+  await requestAndSignOperation(vault, VAULT_OP.SET_BRIDGE_IN_CALLER, deployer.address, 0, "0x");
 
   // Set BridgeInCaller (OpType 2) - allowing deployer to act as bridge
   console.log("Setting Secondary BridgeInCaller to deployer...");

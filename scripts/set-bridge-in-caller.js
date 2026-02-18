@@ -33,6 +33,7 @@ async function main() {
   const ETH_AMOUNT = process.env.ETH_AMOUNT || "10";
   const SECONDARY_BRIDGE_IN_ENABLED = process.env.SECONDARY_BRIDGE_IN_ENABLED;
   const SECONDARY_BRIDGE_OUT_ENABLED = process.env.SECONDARY_BRIDGE_OUT_ENABLED;
+  const VAULT_BRIDGE_OUT_ENABLED = process.env.VAULT_BRIDGE_OUT_ENABLED;
 
   const OP_TYPES = {
     PRIMARY: Object.freeze({
@@ -46,6 +47,7 @@ async function main() {
     }),
     VAULT: Object.freeze({
       SET_BRIDGE_IN_CALLER: 2,
+      SET_BRIDGE_OUT_ENABLED: 6,
     }),
   };
 
@@ -209,6 +211,27 @@ async function main() {
     }
   } else if (BRIDGE_IN_CALLER_VAULT) {
     console.log(`\nWarning: Invalid BRIDGE_IN_CALLER_VAULT address: ${BRIDGE_IN_CALLER_VAULT}`);
+  }
+
+  const desiredVaultBridgeOutEnabled = parseOptionalBoolean(VAULT_BRIDGE_OUT_ENABLED, "VAULT_BRIDGE_OUT_ENABLED");
+  if (!VAULT_ADDR) {
+    if (desiredVaultBridgeOutEnabled !== null) {
+      console.log("\nVault address not provided (VAULT_ADDRESS). Skipping Vault bridgeOutEnabled setup.");
+    }
+  } else if (!vault) {
+    if (desiredVaultBridgeOutEnabled !== null) {
+      console.log(`\nWarning: Invalid VAULT_ADDRESS: ${VAULT_ADDR}`);
+    }
+  } else if (desiredVaultBridgeOutEnabled !== null) {
+    const currentVaultBridgeOutEnabled = await vault.bridgeOutEnabled();
+    if (currentVaultBridgeOutEnabled === desiredVaultBridgeOutEnabled) {
+      console.log(`Vault bridgeOutEnabled already ${desiredVaultBridgeOutEnabled}, skipping.`);
+    } else {
+      console.log(`--- Setting Vault bridgeOutEnabled to ${desiredVaultBridgeOutEnabled} ---`);
+      const data = ethers.AbiCoder.defaultAbiCoder().encode(["bool"], [desiredVaultBridgeOutEnabled]);
+      await requestAndSignOperation(vault, OP_TYPES.VAULT.SET_BRIDGE_OUT_ENABLED, ethers.ZeroAddress, 0, data);
+      console.log("  Done.");
+    }
   }
 
   // ====================================================

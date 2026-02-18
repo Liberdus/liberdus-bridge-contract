@@ -12,6 +12,15 @@ describe("Vault", function () {
   let chainId;
   const destinationChainId = BigInt(97); // BSC testnet
   const sourceChainId = BigInt(97);
+  const OP = Object.freeze({
+    PAUSE: 0,
+    UNPAUSE: 1,
+    SET_BRIDGE_IN_CALLER: 2,
+    SET_BRIDGE_IN_LIMITS: 3,
+    UPDATE_SIGNER: 4,
+    RELINQUISH_TOKENS: 5,
+    SET_BRIDGE_OUT_ENABLED: 6,
+  });
 
   async function requestAndSignOperation(contract, operationType, target, value, data) {
     const tx = await contract.requestOperation(operationType, target, value, data);
@@ -76,6 +85,10 @@ describe("Vault", function () {
       expect(await vault.getChainId()).to.equal(chainId);
     });
 
+    it("Should initialize with bridgeOut enabled", async function () {
+      expect(await vault.bridgeOutEnabled()).to.equal(true);
+    });
+
     it("Should reject zero token address", async function () {
       await expect(
         Vault.deploy(ethers.ZeroAddress, signerAddresses, chainId)
@@ -128,7 +141,7 @@ describe("Vault", function () {
     it("Should reject bridging out with insufficient balance", async function () {
       const elevatedLimit = ethers.parseUnits("300000", 18);
       const cooldownData = ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [BigInt(60)]);
-      await requestAndSignOperation(vault, 3, ethers.ZeroAddress, elevatedLimit, cooldownData);
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_LIMITS, ethers.ZeroAddress, elevatedLimit, cooldownData);
 
       const tooMuch = ethers.parseUnits("200000", 18); // More than the 100k minted
       await liberdus.connect(owner).approve(await vault.getAddress(), tooMuch);
@@ -144,7 +157,7 @@ describe("Vault", function () {
 
       const reducedMaxAmount = ethers.parseUnits("500", 18);
       const cooldownData = ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [BigInt(60)]);
-      await requestAndSignOperation(vault, 3, ethers.ZeroAddress, reducedMaxAmount, cooldownData);
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_LIMITS, ethers.ZeroAddress, reducedMaxAmount, cooldownData);
 
       await expect(
         vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId)
@@ -156,11 +169,40 @@ describe("Vault", function () {
       await liberdus.connect(owner).approve(await vault.getAddress(), bridgeAmount);
 
       // Pause vault
-      await requestAndSignOperation(vault, 0, ethers.ZeroAddress, 0, "0x");
+      await requestAndSignOperation(vault, OP.PAUSE, ethers.ZeroAddress, 0, "0x");
 
       await expect(
         vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId)
       ).to.be.revertedWithCustomError(vault, "EnforcedPause");
+    });
+
+    it("Should reject bridging out when bridgeOut is disabled", async function () {
+      const bridgeAmount = ethers.parseUnits("1000", 18);
+      await liberdus.connect(owner).approve(await vault.getAddress(), bridgeAmount);
+
+      const disabledData = ethers.AbiCoder.defaultAbiCoder().encode(["bool"], [false]);
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_OUT_ENABLED, ethers.ZeroAddress, 0, disabledData);
+
+      await expect(
+        vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId)
+      ).to.be.revertedWith("Bridge-out disabled");
+    });
+
+    it("Should disable and then re-enable bridgeOut via multisig", async function () {
+      const bridgeAmount = ethers.parseUnits("1000", 18);
+      await liberdus.connect(owner).approve(await vault.getAddress(), bridgeAmount);
+
+      const disabledData = ethers.AbiCoder.defaultAbiCoder().encode(["bool"], [false]);
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_OUT_ENABLED, ethers.ZeroAddress, 0, disabledData);
+      expect(await vault.bridgeOutEnabled()).to.equal(false);
+
+      const enabledData = ethers.AbiCoder.defaultAbiCoder().encode(["bool"], [true]);
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_OUT_ENABLED, ethers.ZeroAddress, 0, enabledData);
+      expect(await vault.bridgeOutEnabled()).to.equal(true);
+
+      await expect(
+        vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId)
+      ).to.emit(vault, "BridgedOut");
     });
   });
 
@@ -175,13 +217,13 @@ describe("Vault", function () {
     });
 
     it("Should set bridge in caller before bridging in", async function () {
-      await requestAndSignOperation(vault, 2, owner.address, 0, "0x");
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_CALLER, owner.address, 0, "0x");
       expect(await vault.bridgeInCaller()).to.equal(owner.address);
     });
 
     it("Should bridge in tokens successfully", async function () {
       // Set bridgeInCaller first
-      await requestAndSignOperation(vault, 2, owner.address, 0, "0x");
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_CALLER, owner.address, 0, "0x");
 
       const bridgeInAmount = ethers.parseUnits("1000", 18);
       const txId = ethers.id("test-tx-1");
@@ -203,7 +245,7 @@ describe("Vault", function () {
     });
 
     it("Should reject bridging in zero tokens", async function () {
-      await requestAndSignOperation(vault, 2, owner.address, 0, "0x");
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_CALLER, owner.address, 0, "0x");
       const txId = ethers.id("test-tx-1");
 
       await expect(
@@ -212,7 +254,7 @@ describe("Vault", function () {
     });
 
     it("Should reject bridging in to zero address", async function () {
-      await requestAndSignOperation(vault, 2, owner.address, 0, "0x");
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_CALLER, owner.address, 0, "0x");
       const bridgeInAmount = ethers.parseUnits("1000", 18);
       const txId = ethers.id("test-tx-1");
 
@@ -222,7 +264,7 @@ describe("Vault", function () {
     });
 
     it("Should reject bridging in more than maxBridgeInAmount", async function () {
-      await requestAndSignOperation(vault, 2, owner.address, 0, "0x");
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_CALLER, owner.address, 0, "0x");
       const tooMuch = ethers.parseUnits("10001", 18);
       const txId = ethers.id("test-tx-1");
 
@@ -232,7 +274,7 @@ describe("Vault", function () {
     });
 
     it("Should enforce bridge in cooldown", async function () {
-      await requestAndSignOperation(vault, 2, owner.address, 0, "0x");
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_CALLER, owner.address, 0, "0x");
       const bridgeInAmount = ethers.parseUnits("1000", 18);
       const txId1 = ethers.id("test-tx-1");
       const txId2 = ethers.id("test-tx-2");
@@ -255,7 +297,7 @@ describe("Vault", function () {
     });
 
     it("Should prevent replay with same txId", async function () {
-      await requestAndSignOperation(vault, 2, owner.address, 0, "0x");
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_CALLER, owner.address, 0, "0x");
       const bridgeInAmount = ethers.parseUnits("1000", 18);
       const txId = ethers.id("test-tx-1");
 
@@ -273,7 +315,7 @@ describe("Vault", function () {
     });
 
     it("Should reject bridge in with insufficient vault balance", async function () {
-      await requestAndSignOperation(vault, 2, owner.address, 0, "0x");
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_CALLER, owner.address, 0, "0x");
       const bridgeInAmount = ethers.parseUnits("6000", 18); // More than locked
       const txId = ethers.id("test-tx-1");
 
@@ -286,7 +328,7 @@ describe("Vault", function () {
       const highLimit = ethers.parseUnits("100000", 18);
       const lowCooldown = BigInt(1);
       const encodedData = ethers.AbiCoder.defaultAbiCoder().encode(['uint256'], [lowCooldown]);
-      await requestAndSignOperation(vault, 3, ethers.ZeroAddress, highLimit, encodedData);
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_LIMITS, ethers.ZeroAddress, highLimit, encodedData);
 
       // Fund vault with enough tokens
       const extraFunding = ethers.parseUnits("95000", 18);
@@ -294,7 +336,7 @@ describe("Vault", function () {
       await vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](extraFunding, recipient.address, chainId, destinationChainId);
 
       // Set bridgeInCaller
-      await requestAndSignOperation(vault, 2, owner.address, 0, "0x");
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_CALLER, owner.address, 0, "0x");
 
       const bridgeInAmount = ethers.parseUnits("1", 18);
       const txIds = [];
@@ -322,10 +364,10 @@ describe("Vault", function () {
 
     it("Should allow bridge in when paused", async function () {
       // Set bridgeInCaller first
-      await requestAndSignOperation(vault, 2, owner.address, 0, "0x");
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_CALLER, owner.address, 0, "0x");
 
       // Pause vault
-      await requestAndSignOperation(vault, 0, ethers.ZeroAddress, 0, "0x");
+      await requestAndSignOperation(vault, OP.PAUSE, ethers.ZeroAddress, 0, "0x");
 
       const bridgeInAmount = ethers.parseUnits("1000", 18);
       const txId = ethers.id("test-tx-1");
@@ -354,14 +396,14 @@ describe("Vault", function () {
       const liberdusBalanceBefore = await liberdus.balanceOf(liberdusAddress);
 
       // RelinquishTokens is OperationType 5
-      await requestAndSignOperation(vault, 5, ethers.ZeroAddress, 0, "0x");
+      await requestAndSignOperation(vault, OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x");
 
       expect(await vault.getVaultBalance()).to.equal(0);
       expect(await liberdus.balanceOf(liberdusAddress)).to.equal(liberdusBalanceBefore + bridgeAmount);
     });
 
     it("Should emit TokensRelinquished event", async function () {
-      const tx = await vault.requestOperation(5, ethers.ZeroAddress, 0, "0x");
+      const tx = await vault.requestOperation(OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x");
       const receipt = await tx.wait();
       const operationId = receipt.logs.find(log => log.fragment.name === 'OperationRequested').args.operationId;
 
@@ -381,28 +423,28 @@ describe("Vault", function () {
 
     it("Should relinquish tokens even when paused", async function () {
       // Pause vault
-      await requestAndSignOperation(vault, 0, ethers.ZeroAddress, 0, "0x");
+      await requestAndSignOperation(vault, OP.PAUSE, ethers.ZeroAddress, 0, "0x");
 
       // RelinquishTokens should still work
-      await requestAndSignOperation(vault, 5, ethers.ZeroAddress, 0, "0x");
+      await requestAndSignOperation(vault, OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x");
 
       expect(await vault.getVaultBalance()).to.equal(0);
     });
 
     it("Should reject relinquish when vault has no tokens", async function () {
       // First relinquish all tokens
-      await requestAndSignOperation(vault, 5, ethers.ZeroAddress, 0, "0x");
+      await requestAndSignOperation(vault, OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x");
 
       // Second relinquish should fail
       await expect(
-        requestAndSignOperation(vault, 5, ethers.ZeroAddress, 0, "0x")
+        requestAndSignOperation(vault, OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x")
       ).to.be.revertedWith("No tokens to relinquish");
     });
   });
 
   describe("Multi-sig Operations", function () {
     it("Should set bridge in caller via multisig", async function () {
-      await requestAndSignOperation(vault, 2, bridgeInCaller.address, 0, "0x");
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_CALLER, bridgeInCaller.address, 0, "0x");
       expect(await vault.bridgeInCaller()).to.equal(bridgeInCaller.address);
     });
 
@@ -411,7 +453,7 @@ describe("Vault", function () {
       const newCooldown = BigInt(2 * 60);
       const encodedData = ethers.AbiCoder.defaultAbiCoder().encode(['uint256'], [newCooldown]);
 
-      await requestAndSignOperation(vault, 3, ethers.ZeroAddress, newMaxAmount, encodedData);
+      await requestAndSignOperation(vault, OP.SET_BRIDGE_IN_LIMITS, ethers.ZeroAddress, newMaxAmount, encodedData);
       expect(await vault.maxBridgeInAmount()).to.equal(newMaxAmount);
       expect(await vault.bridgeInCooldown()).to.equal(newCooldown);
     });
@@ -422,13 +464,13 @@ describe("Vault", function () {
       await liberdus.connect(owner).approve(await vault.getAddress(), bridgeAmount);
 
       // Pause
-      await requestAndSignOperation(vault, 0, ethers.ZeroAddress, 0, "0x");
+      await requestAndSignOperation(vault, OP.PAUSE, ethers.ZeroAddress, 0, "0x");
       await expect(
         vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId)
       ).to.be.revertedWithCustomError(vault, "EnforcedPause");
 
       // Unpause
-      await requestAndSignOperation(vault, 1, ethers.ZeroAddress, 0, "0x");
+      await requestAndSignOperation(vault, OP.UNPAUSE, ethers.ZeroAddress, 0, "0x");
       await vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId);
       expect(await vault.getVaultBalance()).to.equal(bridgeAmount);
     });
@@ -437,7 +479,7 @@ describe("Vault", function () {
       const newSigner = signer4;
       const oldSigner = signer3;
 
-      const tx = await vault.requestOperation(4, oldSigner.address, BigInt(newSigner.address), "0x");
+      const tx = await vault.requestOperation(OP.UPDATE_SIGNER, oldSigner.address, BigInt(newSigner.address), "0x");
       const receipt = await tx.wait();
       const operationId = receipt.logs.find(log => log.fragment.name === 'OperationRequested').args.operationId;
 
@@ -454,7 +496,7 @@ describe("Vault", function () {
     });
 
     it("Should require three signatures", async function () {
-      const tx = await vault.requestOperation(2, bridgeInCaller.address, 0, "0x");
+      const tx = await vault.requestOperation(OP.SET_BRIDGE_IN_CALLER, bridgeInCaller.address, 0, "0x");
       const receipt = await tx.wait();
       const operationId = receipt.logs.find(log => log.fragment.name === 'OperationRequested').args.operationId;
 
@@ -474,7 +516,7 @@ describe("Vault", function () {
     });
 
     it("Should enforce 3-day operation deadline", async function () {
-      const tx = await vault.requestOperation(2, bridgeInCaller.address, 0, "0x");
+      const tx = await vault.requestOperation(OP.SET_BRIDGE_IN_CALLER, bridgeInCaller.address, 0, "0x");
       const receipt = await tx.wait();
       const operationId = receipt.logs.find(log => log.fragment.name === 'OperationRequested').args.operationId;
 
@@ -487,6 +529,13 @@ describe("Vault", function () {
       await expect(
         vault.connect(signers[0]).submitSignature(operationId, signature)
       ).to.be.revertedWith("Operation deadline passed");
+    });
+
+    it("Should revert no-op bridgeOut status update", async function () {
+      const enabledData = ethers.AbiCoder.defaultAbiCoder().encode(["bool"], [true]);
+      await expect(
+        requestAndSignOperation(vault, OP.SET_BRIDGE_OUT_ENABLED, ethers.ZeroAddress, 0, enabledData)
+      ).to.be.revertedWith("Bridge-out status already set");
     });
   });
 
@@ -501,7 +550,7 @@ describe("Vault", function () {
     });
 
     it("Should check operation expiry correctly", async function () {
-      const tx = await vault.requestOperation(2, bridgeInCaller.address, 0, "0x");
+      const tx = await vault.requestOperation(OP.SET_BRIDGE_IN_CALLER, bridgeInCaller.address, 0, "0x");
       const receipt = await tx.wait();
       const operationId = receipt.logs.find(log => log.fragment.name === 'OperationRequested').args.operationId;
 

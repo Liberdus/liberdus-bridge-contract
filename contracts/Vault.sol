@@ -16,7 +16,8 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
         SetBridgeInCaller,
         SetBridgeInLimits,
         UpdateSigner,
-        RelinquishTokens
+        RelinquishTokens,
+        SetBridgeOutEnabled
     }
 
     struct Operation {
@@ -40,6 +41,7 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
     uint256 public maxBridgeInAmount = 10_000 * 10**18;
     uint256 public bridgeInCooldown = 1 minutes;
     uint256 public lastBridgeInTime;
+    bool public bridgeOutEnabled = true;
 
     // Replay protection using a circular buffer of size 100.
     // Only the 100 most recent bridge-in txIds are stored to bound state growth.
@@ -122,6 +124,12 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
     event TokensRelinquished(
         address indexed to,
         uint256 amount,
+        uint256 timestamp
+    );
+
+    event BridgeOutStatusUpdated(
+        bytes32 indexed operationId,
+        bool enabled,
         uint256 timestamp
     );
 
@@ -244,6 +252,8 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
             _executeSetBridgeInLimits(operationId, op.value, abi.decode(op.data, (uint256)));
         } else if (op.opType == OperationType.RelinquishTokens) {
             _executeRelinquishTokens();
+        } else if (op.opType == OperationType.SetBridgeOutEnabled) {
+            _executeSetBridgeOutEnabled(operationId, abi.decode(op.data, (bool)));
         } else {
             revert("Unknown operation type");
         }
@@ -299,6 +309,12 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
         emit TokensRelinquished(address(token), balance, block.timestamp);
     }
 
+    function _executeSetBridgeOutEnabled(bytes32 operationId, bool enabled) internal {
+        require(enabled != bridgeOutEnabled, "Bridge-out status already set");
+        bridgeOutEnabled = enabled;
+        emit BridgeOutStatusUpdated(operationId, enabled, block.timestamp);
+    }
+
     // --------- BRIDGE OUT & BRIDGE IN ---------
 
     function bridgeOut(uint256 amount, address targetAddress, uint256 _chainId) public whenNotPaused {
@@ -306,6 +322,7 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
     }
 
     function bridgeOut(uint256 amount, address targetAddress, uint256 _chainId, uint256 destinationChainId) public whenNotPaused {
+        require(bridgeOutEnabled, "Bridge-out disabled");
         require(_chainId == chainId, "Invalid chain ID");
         if (destinationChainId != DEFAULT_CHAIN_ID) {
             require(destinationChainId != _chainId, "Destination chain must differ from source chain");
