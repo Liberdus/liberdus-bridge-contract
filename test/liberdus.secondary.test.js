@@ -9,7 +9,7 @@ describe("Liberdus (Secondary Bridge Contract)", function () {
   let chainId;
   const destinationChainId = BigInt(137);
   const sourceChainId = BigInt(1);
-  
+
   const OP = Object.freeze({
     PAUSE: 0,
     UNPAUSE: 1,
@@ -136,10 +136,42 @@ describe("Liberdus (Secondary Bridge Contract)", function () {
     const amount = ethers.parseUnits("1000", 18);
     await liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, amount, chainId, ethers.id("testTxId"), sourceChainId);
 
+    // Try again with same txId
+    await expect(
+      liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, amount, chainId, ethers.id("testTxId"), sourceChainId)
+    ).to.be.revertedWith("Transaction already processed");
+
     // Try again before cooldown
     await expect(
       liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, amount, chainId, ethers.id("testTxId2"), sourceChainId)
     ).to.be.revertedWith("Bridge-in cooldown not met");
+  });
+
+  it("Should prevent replay attacks using processedTxIds", async function () {
+    await requestAndSignOperation(OP.SET_BRIDGE_IN_CALLER, bridgeInCaller.address, 0, "0x");
+    const amount = ethers.parseUnits("1000", 18);
+    const txId = ethers.id("replayTestTxId");
+
+    // First bridgeIn should succeed
+    await liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](
+      recipient.address,
+      amount,
+      chainId,
+      txId,
+      sourceChainId
+    );
+    expect(await liberdus.processedTxIds(txId)).to.be.true;
+
+    // Second bridgeIn with same txId should fail
+    await expect(
+      liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](
+        recipient.address,
+        amount,
+        chainId,
+        txId,
+        sourceChainId
+      )
+    ).to.be.revertedWith("Transaction already processed");
   });
 
   it("Should reject bridgeOut amounts above maxBridgeInAmount", async function () {

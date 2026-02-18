@@ -32,6 +32,7 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
     }
 
     mapping(bytes32 => Operation) public operations;
+    mapping(bytes32 => bool) public processedTxIds;
     uint256 public operationCount;
 
     uint256 public constant OPERATION_DEADLINE = 3 days;
@@ -327,9 +328,11 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
         require(_chainId == chainId, "Invalid chain ID");
         require(amount > 0, "Cannot bridge in zero tokens");
         require(amount <= maxBridgeInAmount, "Amount exceeds bridge-in limit");
+        require(!processedTxIds[txId], "Transaction already processed");
         require(block.timestamp >= lastBridgeInTime + bridgeInCooldown, "Bridge-in cooldown not met");
 
         _mint(to, amount);
+        processedTxIds[txId] = true;
         lastBridgeInTime = block.timestamp;
         emit BridgedIn(to, amount, _chainId, txId, block.timestamp, sourceChainId);
     }

@@ -6,12 +6,13 @@ async function main() {
   let CONTRACT_ADDRESS;
   let CONTRACT_NAME;
 
+  if (CONTRACT_TYPE === "VAULT") {
+    throw new Error("Vault bridgeIn does not exist. Use CONTRACT_TYPE=PRIMARY or SECONDARY.");
+  }
+
   if (CONTRACT_TYPE === "PRIMARY") {
     CONTRACT_ADDRESS = process.env.LIBERDUS_TOKEN_ADDRESS;
     CONTRACT_NAME = "Liberdus";
-  } else if (CONTRACT_TYPE === "VAULT") {
-    CONTRACT_ADDRESS = process.env.VAULT_ADDRESS;
-    CONTRACT_NAME = "Vault";
   } else {
     CONTRACT_ADDRESS = process.env.LIBERDUS_SECONDARY_ADDRESS;
     CONTRACT_NAME = "LiberdusSecondary";
@@ -21,9 +22,6 @@ async function main() {
     if (CONTRACT_TYPE === "PRIMARY") {
       throw new Error("Set LIBERDUS_TOKEN_ADDRESS in your .env file");
     }
-    if (CONTRACT_TYPE === "VAULT") {
-      throw new Error("Set VAULT_ADDRESS in your .env file");
-    }
     throw new Error("Set LIBERDUS_SECONDARY_ADDRESS in your .env file");
   }
 
@@ -32,7 +30,7 @@ async function main() {
   const sourceChainId = BigInt(process.env.SOURCE_CHAIN_ID || 0);
   const amount = ethers.parseUnits(process.env.AMOUNT_LIB || "10000", 18);
   const recipient = process.env.TARGET_ADDRESS || deployer.address;
-  const txId = process.env.TX_ID || "testnet-bridge-in-1";
+  const txId = process.env.TX_ID || `testnet-bridge-in-${Date.now()}`;
 
   console.log("Using account:", deployer.address);
   console.log("Chain ID:", chainId);
@@ -42,9 +40,7 @@ async function main() {
   // Attach to deployed contract
   const contract = await hre.ethers.getContractAt(CONTRACT_NAME, CONTRACT_ADDRESS);
 
-  if (CONTRACT_TYPE === "VAULT") {
-    throw new Error("Vault bridgeIn has been removed. Use CONTRACT_TYPE=PRIMARY or SECONDARY.");
-  }
+
 
   // Verify state (only primary contract has isPreLaunch)
   if (CONTRACT_TYPE === "PRIMARY") {
@@ -53,7 +49,7 @@ async function main() {
     if (isPreLaunch) {
       throw new Error("Contract is still in pre-launch mode. Redeploy with updated constructor.");
     }
-  } else if (CONTRACT_TYPE === "SECONDARY") {
+  } else {
     const bridgeInEnabled = await contract.bridgeInEnabled();
     console.log("bridgeInEnabled:", bridgeInEnabled);
     if (!bridgeInEnabled) {
@@ -68,36 +64,32 @@ async function main() {
   }
 
   console.log(`\nBridging in ${ethers.formatUnits(amount, 18)} LIB to ${recipient}...`);
-  
+
   let tx;
   if (CONTRACT_TYPE === "PRIMARY") {
-      tx = await contract.bridgeIn(recipient, amount, chainId, ethers.id(txId));
+    tx = await contract.bridgeIn(recipient, amount, chainId, ethers.id(txId));
   } else {
-      console.log("Calling bridgeIn with sourceChainId:", sourceChainId.toString());
-      tx = await contract["bridgeIn(address,uint256,uint256,bytes32,uint256)"](
-        recipient,
-        amount,
-        chainId,
-        ethers.id(txId),
-        sourceChainId
-      );
+    const hashedTxId = ethers.id(txId);
+    const isProcessed = await contract.processedTxIds(hashedTxId);
+    if (isProcessed) {
+      throw new Error(`Transaction ID ${txId} (hash: ${hashedTxId}) has already been processed.`);
+    }
+
+    console.log("Calling bridgeIn with sourceChainId:", sourceChainId.toString());
+    tx = await contract["bridgeIn(address,uint256,uint256,bytes32,uint256)"](
+      recipient,
+      amount,
+      chainId,
+      ethers.id(txId),
+      sourceChainId
+    );
   }
 
   const receipt = await tx.wait();
   console.log("Transaction hash:", receipt.hash);
 
   let balance;
-  if (CONTRACT_TYPE === "VAULT") {
-    const tokenAddress = await contract.token();
-    const tokenContract = new ethers.Contract(
-      tokenAddress,
-      ["function balanceOf(address) view returns (uint256)"],
-      deployer
-    );
-    balance = await tokenContract.balanceOf(recipient);
-  } else {
-    balance = await contract.balanceOf(recipient);
-  }
+  balance = await contract.balanceOf(recipient);
   console.log("Balance:", ethers.formatUnits(balance, 18), "LIB");
 }
 
