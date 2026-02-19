@@ -41,7 +41,6 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
 
     address[4] public signers;
     uint256 public constant REQUIRED_SIGNATURES = 3;
-    uint256 public constant DEFAULT_CHAIN_ID = 0;
     uint256 public immutable chainId;
 
     // Events
@@ -80,8 +79,7 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
         uint256 amount,
         address indexed targetAddress,
         uint256 indexed chainId,
-        uint256 timestamp,
-        uint256 destinationChainId
+        uint256 timestamp
     );
 
     event SignerUpdated(
@@ -267,15 +265,8 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
     // --------- BRIDGE OUT ---------
 
     function bridgeOut(uint256 amount, address targetAddress, uint256 _chainId) public whenNotPaused {
-        bridgeOut(amount, targetAddress, _chainId, DEFAULT_CHAIN_ID);
-    }
-
-    function bridgeOut(uint256 amount, address targetAddress, uint256 _chainId, uint256 destinationChainId) public whenNotPaused {
         require(bridgeOutEnabled, "Bridge-out disabled");
         require(_chainId == chainId, "Invalid chain ID");
-        if (destinationChainId != DEFAULT_CHAIN_ID) {
-            require(destinationChainId != _chainId, "Destination chain must differ from source chain");
-        }
         require(amount > 0, "Cannot bridge out zero tokens");
         require(amount <= maxBridgeOutAmount, "Amount exceeds bridge-out limit");
         require(targetAddress != address(0), "Invalid target address");
@@ -283,7 +274,7 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
 
         require(token.transferFrom(msg.sender, address(this), amount), "Token transfer failed");
 
-        emit BridgedOut(msg.sender, amount, targetAddress, _chainId, block.timestamp, destinationChainId);
+        emit BridgedOut(msg.sender, amount, targetAddress, _chainId, block.timestamp);
     }
 
     // --------- HELPER FUNCTIONS ---------
