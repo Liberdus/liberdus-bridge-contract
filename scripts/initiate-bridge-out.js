@@ -29,7 +29,6 @@ async function main() {
 
   const [deployer] = await hre.ethers.getSigners();
   const chainId = (await hre.ethers.provider.getNetwork()).chainId;
-  const destinationChainId = BigInt(process.env.DESTINATION_CHAIN_ID || 0);
   const amount = ethers.parseUnits(process.env.AMOUNT_LIB || "100", 18);
   const targetAddress = process.env.TARGET_ADDRESS || deployer.address;
 
@@ -100,8 +99,7 @@ async function main() {
         await approveTx.wait();
       }
     }
-    console.log("Calling bridgeOut with destinationChainId:", destinationChainId.toString());
-    tx = await contract["bridgeOut(uint256,address,uint256,uint256)"](amount, targetAddress, chainId, destinationChainId);
+    tx = await contract.bridgeOut(amount, targetAddress, chainId);
   }
 
   const receipt = await tx.wait();

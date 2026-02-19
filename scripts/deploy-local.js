@@ -15,11 +15,6 @@ async function main() {
     (await deployer.provider.getBalance(deployer.address)).toString(),
   );
 
-  // --- CONFIGURATION ---
-  // Simulate two chains
-  const CHAIN_ID_PRIMARY = 31337;
-  const CHAIN_ID_SECONDARY = 31338;
-
   let signerAddresses;
   let signers;
 
@@ -151,14 +146,7 @@ async function main() {
   await liberdus.connect(deployer).approve(await vault.getAddress(), bridgeAmount);
 
   console.log(`Bridging out ${ethers.formatUnits(bridgeAmount, 18)} LIB via Vault...`);
-  const txOut1 = await vault
-    .connect(deployer)
-    ["bridgeOut(uint256,address,uint256,uint256)"](
-      bridgeAmount,
-      deployer.address,
-      CHAIN_ID_PRIMARY,
-      CHAIN_ID_SECONDARY
-    );
+  const txOut1 = await vault.connect(deployer).bridgeOut(bridgeAmount, deployer.address, CHAIN_ID_PRIMARY);
   await txOut1.wait();
 
   console.log("Primary Balance:", ethers.formatUnits(await liberdus.balanceOf(deployer.address), 18));
@@ -166,21 +154,7 @@ async function main() {
 
   // Simulate Relayer: Bridge In on Secondary
   console.log(`Bridging in ${ethers.formatUnits(bridgeAmount, 18)} LIB to Secondary...`);
-  // LiberdusSecondary bridgeIn(to, amount, chainId, txId, sourceChainId)
-  // or bridgeIn(to, amount, chainId, txId) which defaults source to 0
-
-  // We use the full signature for completeness if available, or just the standard one.
-  // LiberdusSecondary has: bridgeIn(address,uint256,uint256,bytes32) and bridgeIn(address,uint256,uint256,bytes32,uint256)
-
-  await liberdusSecondary
-    .connect(deployer)
-  ["bridgeIn(address,uint256,uint256,bytes32,uint256)"](
-    deployer.address,
-    bridgeAmount,
-    CHAIN_ID_SECONDARY,
-    ethers.id("tx1"),
-    CHAIN_ID_PRIMARY
-  );
+  await liberdusSecondary.connect(deployer).bridgeIn(deployer.address, bridgeAmount, CHAIN_ID_SECONDARY, ethers.id("tx1"));
 
   console.log("Secondary Balance:", ethers.formatUnits(await liberdusSecondary.balanceOf(deployer.address), 18));
 
@@ -192,15 +166,7 @@ async function main() {
   const returnAmount = ethers.parseUnits("200", 18);
 
   console.log(`Bridging out ${ethers.formatUnits(returnAmount, 18)} LIB from Secondary...`);
-  // LiberdusSecondary bridgeOut(amount, target, chainId, destinationChainId)
-  await liberdusSecondary
-    .connect(deployer)
-  ["bridgeOut(uint256,address,uint256,uint256)"](
-    returnAmount,
-    deployer.address,
-    CHAIN_ID_SECONDARY,
-    CHAIN_ID_PRIMARY
-  );
+  await liberdusSecondary.connect(deployer).bridgeOut(returnAmount, deployer.address, CHAIN_ID_SECONDARY);
 
   console.log("Secondary Balance:", ethers.formatUnits(await liberdusSecondary.balanceOf(deployer.address), 18));
 

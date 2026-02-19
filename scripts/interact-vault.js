@@ -82,7 +82,6 @@ async function main() {
     const liberdus = await hre.ethers.getContractAt("Liberdus", LIBERDUS_ADDRESS);
     const amount = ethers.parseUnits(process.env.AMOUNT || "100", 18);
     const targetAddress = process.env.TARGET_ADDRESS || deployer.address;
-    const destinationChainId = process.env.DESTINATION_CHAIN_ID || 0;
 
     const balance = await liberdus.balanceOf(deployer.address);
     console.log(`\nCurrent Balance: ${ethers.formatUnits(balance, 18)} LIB`);
@@ -98,7 +97,7 @@ async function main() {
 
     // Bridge out
     console.log(`Bridging out ${ethers.formatUnits(amount, 18)} LIB to ${targetAddress}...`);
-    const tx = await vault.connect(deployer)["bridgeOut(uint256,address,uint256,uint256)"](amount, targetAddress, chainId, destinationChainId);
+    const tx = await vault.connect(deployer).bridgeOut(amount, targetAddress, chainId);
     const receipt = await tx.wait();
     console.log("Transaction hash:", receipt.hash);
 

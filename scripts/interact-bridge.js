@@ -13,9 +13,6 @@ async function main() {
     throw new Error("Set LIBERDUS_TOKEN_ADDRESS, LIBERDUS_SECONDARY_ADDRESS, and VAULT_ADDRESS in .env");
   }
 
-  const CHAIN_ID_PRIMARY = 31337;
-  const CHAIN_ID_SECONDARY = 31338;
-
   const balanceOnly = process.env.BALANCE_ONLY === "true" || process.env.BALANCE_ONLY === "1";
 
   console.log("Interacting with contracts...");
@@ -72,14 +69,7 @@ async function main() {
     const approveTx = await liberdus.connect(signer1).approve(VAULT_ADDR, bridgeOutAmount);
     await approveTx.wait();
 
-    const tx = await vault
-      .connect(signer1)
-      ["bridgeOut(uint256,address,uint256,uint256)"](
-        bridgeOutAmount,
-        signer1.address,
-        CHAIN_ID_PRIMARY,
-        CHAIN_ID_SECONDARY
-      );
+    const tx = await vault.connect(signer1).bridgeOut(bridgeOutAmount, signer1.address, CHAIN_ID_PRIMARY);
     await tx.wait();
     console.log("Signer 1 vault bridgeOut successful.");
     console.log(`Signer 1 Primary Remaining: ${ethers.formatUnits(await liberdus.balanceOf(signer1.address), 18)} LIB`);
@@ -101,14 +91,7 @@ async function main() {
   if (!secondaryBridgeOutEnabled) {
     console.log("Skipping Secondary->Primary: secondary bridgeOut is disabled.");
   } else if (signer2SecondaryBal >= bridgeBackAmount) {
-    const outTx = await liberdusSecondary
-      .connect(signer2)
-      ["bridgeOut(uint256,address,uint256,uint256)"](
-        bridgeBackAmount,
-        signer2.address,
-        CHAIN_ID_SECONDARY,
-        CHAIN_ID_PRIMARY
-      );
+    const outTx = await liberdusSecondary.connect(signer2).bridgeOut(bridgeBackAmount, signer2.address, CHAIN_ID_SECONDARY);
     await outTx.wait();
     console.log("Signer 2 secondary bridgeOut successful.");
 

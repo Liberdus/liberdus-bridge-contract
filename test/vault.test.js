@@ -10,7 +10,6 @@ describe("Vault", function () {
   let signers;
   let signerAddresses;
   let chainId;
-  const destinationChainId = BigInt(97); // BSC testnet
   const OP = Object.freeze({
     PAUSE: 0,
     UNPAUSE: 1,
@@ -102,7 +101,7 @@ describe("Vault", function () {
       await liberdus.connect(owner).approve(await vault.getAddress(), bridgeAmount);
 
       // Bridge out tokens and check event
-      await expect(vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId))
+      await expect(vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId))
         .to.emit(vault, "BridgedOut");
 
       expect(await vault.getVaultBalance()).to.equal(bridgeAmount);
@@ -111,7 +110,7 @@ describe("Vault", function () {
 
     it("Should reject bridging out zero tokens", async function () {
       await expect(
-        vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](0, recipient.address, chainId, destinationChainId)
+        vault.connect(owner).bridgeOut(0, recipient.address, chainId)
       ).to.be.revertedWith("Cannot bridge out zero tokens");
     });
 
@@ -120,7 +119,7 @@ describe("Vault", function () {
       await liberdus.connect(owner).approve(await vault.getAddress(), bridgeAmount);
 
       await expect(
-        vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, ethers.ZeroAddress, chainId, destinationChainId)
+        vault.connect(owner).bridgeOut(bridgeAmount, ethers.ZeroAddress, chainId)
       ).to.be.revertedWith("Invalid target address");
     });
 
@@ -128,7 +127,7 @@ describe("Vault", function () {
       const bridgeAmount = ethers.parseUnits("1000", 18);
 
       await expect(
-        vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId)
+        vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId)
       ).to.be.reverted;
     });
 
@@ -140,7 +139,7 @@ describe("Vault", function () {
       await liberdus.connect(owner).approve(await vault.getAddress(), tooMuch);
 
       await expect(
-        vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](tooMuch, recipient.address, chainId, destinationChainId)
+        vault.connect(owner).bridgeOut(tooMuch, recipient.address, chainId)
       ).to.be.revertedWith("Insufficient balance");
     });
 
@@ -152,7 +151,7 @@ describe("Vault", function () {
       await requestAndSignOperation(vault, OP.SET_BRIDGE_OUT_AMOUNT, ethers.ZeroAddress, reducedMaxAmount, "0x");
 
       await expect(
-        vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId)
+        vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId)
       ).to.be.revertedWith("Amount exceeds bridge-out limit");
     });
 
@@ -164,7 +163,7 @@ describe("Vault", function () {
       await requestAndSignOperation(vault, OP.PAUSE, ethers.ZeroAddress, 0, "0x");
 
       await expect(
-        vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId)
+        vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId)
       ).to.be.revertedWithCustomError(vault, "EnforcedPause");
     });
 
@@ -176,7 +175,7 @@ describe("Vault", function () {
       await requestAndSignOperation(vault, OP.SET_BRIDGE_OUT_ENABLED, ethers.ZeroAddress, 0, disabledData);
 
       await expect(
-        vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId)
+        vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId)
       ).to.be.revertedWith("Bridge-out disabled");
     });
 
@@ -193,7 +192,7 @@ describe("Vault", function () {
       expect(await vault.bridgeOutEnabled()).to.equal(true);
 
       await expect(
-        vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId)
+        vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId)
       ).to.emit(vault, "BridgedOut");
     });
   });
@@ -205,7 +204,7 @@ describe("Vault", function () {
       await setupLiberdusWithTokens();
       // Bridge out tokens first to fund the vault
       await liberdus.connect(owner).approve(await vault.getAddress(), bridgeAmount);
-      await vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId);
+      await vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId);
     });
 
     it("Should relinquish all tokens to Liberdus contract via multisig", async function () {
@@ -277,12 +276,12 @@ describe("Vault", function () {
       // Pause
       await requestAndSignOperation(vault, OP.PAUSE, ethers.ZeroAddress, 0, "0x");
       await expect(
-        vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId)
+        vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId)
       ).to.be.revertedWithCustomError(vault, "EnforcedPause");
 
       // Unpause
       await requestAndSignOperation(vault, OP.UNPAUSE, ethers.ZeroAddress, 0, "0x");
-      await vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId);
+      await vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId);
       expect(await vault.getVaultBalance()).to.equal(bridgeAmount);
     });
 
@@ -356,7 +355,7 @@ describe("Vault", function () {
       await setupLiberdusWithTokens();
       const bridgeAmount = ethers.parseUnits("1000", 18);
       await liberdus.connect(owner).approve(await vault.getAddress(), bridgeAmount);
-      await vault.connect(owner)["bridgeOut(uint256,address,uint256,uint256)"](bridgeAmount, recipient.address, chainId, destinationChainId);
+      await vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId);
 
       expect(await vault.getVaultBalance()).to.equal(bridgeAmount);
     });

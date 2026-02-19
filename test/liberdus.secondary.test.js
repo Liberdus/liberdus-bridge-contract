@@ -7,9 +7,6 @@ describe("Liberdus (Secondary Bridge Contract)", function () {
   let owner, signer1, signer2, signer3, signer4, recipient, bridgeInCaller, other;
   let signers;
   let chainId;
-  const destinationChainId = BigInt(137);
-  const sourceChainId = BigInt(1);
-
   const OP = Object.freeze({
     PAUSE: 0,
     UNPAUSE: 1,
@@ -81,11 +78,11 @@ describe("Liberdus (Secondary Bridge Contract)", function () {
 
     // Bridge in tokens
     const bridgeInAmount = ethers.parseUnits("1000", 18);
-    await liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, bridgeInAmount, chainId, ethers.id("testTxId"), sourceChainId);
+    await liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, bridgeInAmount, chainId, ethers.id("testTxId"));
     expect(await liberdus.balanceOf(recipient.address)).to.equal(bridgeInAmount);
 
     // Bridge out tokens
-    await liberdus.connect(recipient)["bridgeOut(uint256,address,uint256,uint256)"](bridgeInAmount, owner.address, chainId, destinationChainId);
+    await liberdus.connect(recipient).bridgeOut(bridgeInAmount, owner.address, chainId);
     expect(await liberdus.balanceOf(recipient.address)).to.equal(0);
     expect(await liberdus.totalSupply()).to.equal(0);
   });
@@ -95,7 +92,7 @@ describe("Liberdus (Secondary Bridge Contract)", function () {
 
     const bridgeInAmount = ethers.parseUnits("1000", 18);
     await expect(
-      liberdus.connect(owner)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, bridgeInAmount, chainId, ethers.id("testTxId"), sourceChainId)
+      liberdus.connect(owner).bridgeIn(recipient.address, bridgeInAmount, chainId, ethers.id("testTxId"))
     ).to.be.revertedWith("Not authorized to bridge in");
   });
 
@@ -107,21 +104,16 @@ describe("Liberdus (Secondary Bridge Contract)", function () {
     const wrongChainId = chainId + BigInt(1);
 
     await expect(
-      liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, bridgeInAmount, wrongChainId, ethers.id("testTxId"), sourceChainId)
+      liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, bridgeInAmount, wrongChainId, ethers.id("testTxId"))
     ).to.be.revertedWith("Invalid chain ID");
 
     // Bridge in with correct chainId
-    await liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, bridgeInAmount, chainId, ethers.id("testTxId"), sourceChainId);
+    await liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, bridgeInAmount, chainId, ethers.id("testTxId"));
 
     // Bridge out with wrong chainId
     await expect(
-      liberdus.connect(recipient)["bridgeOut(uint256,address,uint256,uint256)"](bridgeInAmount, owner.address, wrongChainId, destinationChainId)
+      liberdus.connect(recipient).bridgeOut(bridgeInAmount, owner.address, wrongChainId)
     ).to.be.revertedWith("Invalid chain ID");
-
-    // Bridge out with destinationChainId same as source chainId
-    await expect(
-      liberdus.connect(recipient)["bridgeOut(uint256,address,uint256,uint256)"](bridgeInAmount, owner.address, chainId, chainId)
-    ).to.be.revertedWith("Destination chain must differ from source chain");
   });
 
   it("Should enforce maxBridgeInAmount and cooldown", async function () {
@@ -129,21 +121,21 @@ describe("Liberdus (Secondary Bridge Contract)", function () {
     const tooMuch = ethers.parseUnits("10001", 18);
 
     await expect(
-      liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, tooMuch, chainId, ethers.id("testTxId"), sourceChainId)
+      liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, tooMuch, chainId, ethers.id("testTxId"))
     ).to.be.revertedWith("Amount exceeds bridge-in limit");
 
     // Valid bridge-in
     const amount = ethers.parseUnits("1000", 18);
-    await liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, amount, chainId, ethers.id("testTxId"), sourceChainId);
+    await liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, amount, chainId, ethers.id("testTxId"));
 
     // Try again with same txId
     await expect(
-      liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, amount, chainId, ethers.id("testTxId"), sourceChainId)
+      liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, amount, chainId, ethers.id("testTxId"))
     ).to.be.revertedWith("Transaction already processed");
 
     // Try again before cooldown
     await expect(
-      liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, amount, chainId, ethers.id("testTxId2"), sourceChainId)
+      liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, amount, chainId, ethers.id("testTxId2"))
     ).to.be.revertedWith("Bridge-in cooldown not met");
   });
 
@@ -153,24 +145,12 @@ describe("Liberdus (Secondary Bridge Contract)", function () {
     const txId = ethers.id("replayTestTxId");
 
     // First bridgeIn should succeed
-    await liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](
-      recipient.address,
-      amount,
-      chainId,
-      txId,
-      sourceChainId
-    );
+    await liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, amount, chainId, txId);
     expect(await liberdus.processedTxIds(txId)).to.be.true;
 
     // Second bridgeIn with same txId should fail
     await expect(
-      liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](
-        recipient.address,
-        amount,
-        chainId,
-        txId,
-        sourceChainId
-      )
+      liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, amount, chainId, txId)
     ).to.be.revertedWith("Transaction already processed");
   });
 
@@ -179,25 +159,14 @@ describe("Liberdus (Secondary Bridge Contract)", function () {
     await setBridgeOutEnabled(true);
 
     const bridgedAmount = ethers.parseUnits("1000", 18);
-    await liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](
-      recipient.address,
-      bridgedAmount,
-      chainId,
-      ethers.id("testTxId"),
-      sourceChainId
-    );
+    await liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, bridgedAmount, chainId, ethers.id("testTxId"));
 
     const reducedMaxAmount = ethers.parseUnits("500", 18);
     const cooldownData = ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [BigInt(60)]);
     await requestAndSignOperation(OP.SET_BRIDGE_IN_LIMITS, ethers.ZeroAddress, reducedMaxAmount, cooldownData);
 
     await expect(
-      liberdus.connect(recipient)["bridgeOut(uint256,address,uint256,uint256)"](
-        bridgedAmount,
-        owner.address,
-        chainId,
-        destinationChainId
-      )
+      liberdus.connect(recipient).bridgeOut(bridgedAmount, owner.address, chainId)
     ).to.be.revertedWith("Amount exceeds bridge-in limit");
   });
 
@@ -205,7 +174,7 @@ describe("Liberdus (Secondary Bridge Contract)", function () {
     await requestAndSignOperation(OP.SET_BRIDGE_IN_CALLER, bridgeInCaller.address, 0, "0x");
     const bridgeInAmount = ethers.parseUnits("1000", 18);
 
-    await liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, bridgeInAmount, chainId, ethers.id("testTxId"), sourceChainId);
+    await liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, bridgeInAmount, chainId, ethers.id("testTxId"));
 
     await requestAndSignOperation(OP.PAUSE, ethers.ZeroAddress, 0, "0x"); // Pause
     await expect(
@@ -312,29 +281,11 @@ describe("Liberdus (Secondary Bridge Contract)", function () {
   it("Should allow transfer and transferFrom when not paused", async function () {
     await requestAndSignOperation(OP.SET_BRIDGE_IN_CALLER, bridgeInCaller.address, 0, "0x");
     const bridgeInAmount = ethers.parseUnits("1000", 18);
-    await liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](recipient.address, bridgeInAmount, chainId, ethers.id("testTxId"), sourceChainId);
+    await liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, bridgeInAmount, chainId, ethers.id("testTxId"));
 
     await liberdus.connect(recipient).approve(owner.address, bridgeInAmount);
     await liberdus.connect(owner).transferFrom(recipient.address, owner.address, bridgeInAmount);
     expect(await liberdus.balanceOf(owner.address)).to.equal(bridgeInAmount);
-  });
-
-  it("Should allow bridgeOut and bridgeIn without optional chainId params", async function () {
-    await requestAndSignOperation(OP.SET_BRIDGE_IN_CALLER, bridgeInCaller.address, 0, "0x");
-    await setBridgeOutEnabled(true);
-
-    // Bridge in without sourceChainId
-    const bridgeInAmount = ethers.parseUnits("1000", 18);
-    await liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32)"](
-      recipient.address, bridgeInAmount, chainId, ethers.id("testTxId")
-    );
-    expect(await liberdus.balanceOf(recipient.address)).to.equal(bridgeInAmount);
-
-    // Bridge out without destinationChainId
-    await liberdus.connect(recipient)["bridgeOut(uint256,address,uint256)"](
-      bridgeInAmount, owner.address, chainId
-    );
-    expect(await liberdus.balanceOf(recipient.address)).to.equal(0);
   });
 
   it("Should disable and enable bridgeIn via multisig", async function () {
@@ -345,74 +296,41 @@ describe("Liberdus (Secondary Bridge Contract)", function () {
 
     const amount = ethers.parseUnits("1000", 18);
     await expect(
-      liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](
-        recipient.address,
-        amount,
-        chainId,
-        ethers.id("testTxId"),
-        sourceChainId
-      )
+      liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, amount, chainId, ethers.id("testTxId"))
     ).to.be.revertedWith("Bridge-in disabled");
 
     const bridgeInReEnabledData = ethers.AbiCoder.defaultAbiCoder().encode(["bool"], [true]);
     await requestAndSignOperation(OP.SET_BRIDGE_IN_ENABLED, ethers.ZeroAddress, 0, bridgeInReEnabledData);
     expect(await liberdus.bridgeInEnabled()).to.equal(true);
 
-    await liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](
-      recipient.address,
-      amount,
-      chainId,
-      ethers.id("testTxId2"),
-      sourceChainId
-    );
+    await liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, amount, chainId, ethers.id("testTxId2"));
     expect(await liberdus.balanceOf(recipient.address)).to.equal(amount);
   });
 
   it("Should disable and enable bridgeOut via multisig", async function () {
     await requestAndSignOperation(OP.SET_BRIDGE_IN_CALLER, bridgeInCaller.address, 0, "0x");
     const amount = ethers.parseUnits("2000", 18);
-    await liberdus.connect(bridgeInCaller)["bridgeIn(address,uint256,uint256,bytes32,uint256)"](
-      recipient.address,
-      amount,
-      chainId,
-      ethers.id("testTxId"),
-      sourceChainId
-    );
+    await liberdus.connect(bridgeInCaller).bridgeIn(recipient.address, amount, chainId, ethers.id("testTxId"));
 
     const bridgeOutEnabledData = ethers.AbiCoder.defaultAbiCoder().encode(["bool"], [true]);
     await requestAndSignOperation(OP.SET_BRIDGE_OUT_ENABLED, ethers.ZeroAddress, 0, bridgeOutEnabledData);
     expect(await liberdus.bridgeOutEnabled()).to.equal(true);
 
-    await liberdus.connect(recipient)["bridgeOut(uint256,address,uint256,uint256)"](
-      ethers.parseUnits("1000", 18),
-      owner.address,
-      chainId,
-      destinationChainId
-    );
+    await liberdus.connect(recipient).bridgeOut(ethers.parseUnits("1000", 18), owner.address, chainId);
 
     const bridgeOutDisabledData = ethers.AbiCoder.defaultAbiCoder().encode(["bool"], [false]);
     await requestAndSignOperation(OP.SET_BRIDGE_OUT_ENABLED, ethers.ZeroAddress, 0, bridgeOutDisabledData);
     expect(await liberdus.bridgeOutEnabled()).to.equal(false);
 
     await expect(
-      liberdus.connect(recipient)["bridgeOut(uint256,address,uint256,uint256)"](
-        ethers.parseUnits("1000", 18),
-        owner.address,
-        chainId,
-        destinationChainId
-      )
+      liberdus.connect(recipient).bridgeOut(ethers.parseUnits("1000", 18), owner.address, chainId)
     ).to.be.revertedWith("Bridge-out disabled");
 
     const bridgeOutReEnabledData = ethers.AbiCoder.defaultAbiCoder().encode(["bool"], [true]);
     await requestAndSignOperation(OP.SET_BRIDGE_OUT_ENABLED, ethers.ZeroAddress, 0, bridgeOutReEnabledData);
     expect(await liberdus.bridgeOutEnabled()).to.equal(true);
 
-    await liberdus.connect(recipient)["bridgeOut(uint256,address,uint256,uint256)"](
-      ethers.parseUnits("1000", 18),
-      owner.address,
-      chainId,
-      destinationChainId
-    );
+    await liberdus.connect(recipient).bridgeOut(ethers.parseUnits("1000", 18), owner.address, chainId);
     expect(await liberdus.balanceOf(recipient.address)).to.equal(0);
   });
 

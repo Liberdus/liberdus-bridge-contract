@@ -9,9 +9,6 @@ async function main() {
   const LIBERDUS_SEC_ADDR = process.env.LIBERDUS_SECONDARY_ADDRESS;
   const VAULT_ADDR = process.env.VAULT_ADDRESS;
 
-  const CHAIN_ID_PRIMARY = 31337;
-  const CHAIN_ID_SECONDARY = 31338;
-
   // Addresses to set as bridgeIn caller on each contract
   const BRIDGE_IN_CALLER_PRIMARY = process.env.BRIDGE_IN_CALLER_PRIMARY;
   const BRIDGE_IN_CALLER_SECONDARY = process.env.BRIDGE_IN_CALLER_SECONDARY;

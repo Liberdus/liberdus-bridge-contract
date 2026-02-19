@@ -27,7 +27,6 @@ async function main() {
 
   const [deployer] = await hre.ethers.getSigners();
   const chainId = (await hre.ethers.provider.getNetwork()).chainId;
-  const sourceChainId = BigInt(process.env.SOURCE_CHAIN_ID || 0);
   const amount = ethers.parseUnits(process.env.AMOUNT_LIB || "10000", 18);
   const recipient = process.env.TARGET_ADDRESS || deployer.address;
   const txId = process.env.TX_ID || `testnet-bridge-in-${Date.now()}`;
@@ -75,14 +74,7 @@ async function main() {
       throw new Error(`Transaction ID ${txId} (hash: ${hashedTxId}) has already been processed.`);
     }
 
-    console.log("Calling bridgeIn with sourceChainId:", sourceChainId.toString());
-    tx = await contract["bridgeIn(address,uint256,uint256,bytes32,uint256)"](
-      recipient,
-      amount,
-      chainId,
-      ethers.id(txId),
-      sourceChainId
-    );
+    tx = await contract.bridgeIn(recipient, amount, chainId, ethers.id(txId));
   }
 
   const receipt = await tx.wait();
