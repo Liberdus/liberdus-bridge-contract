@@ -2,26 +2,8 @@ const hre = require("hardhat");
 const { ethers } = hre;
 
 async function main() {
-  const CONTRACT_TYPE = (process.env.CONTRACT_TYPE || "SECONDARY").toUpperCase();
-  let CONTRACT_ADDRESS;
-  let CONTRACT_NAME;
-
-  if (CONTRACT_TYPE === "VAULT") {
-    throw new Error("Vault bridgeIn does not exist. Use CONTRACT_TYPE=PRIMARY or SECONDARY.");
-  }
-
-  if (CONTRACT_TYPE === "PRIMARY") {
-    CONTRACT_ADDRESS = process.env.LIBERDUS_TOKEN_ADDRESS;
-    CONTRACT_NAME = "Liberdus";
-  } else {
-    CONTRACT_ADDRESS = process.env.LIBERDUS_SECONDARY_ADDRESS;
-    CONTRACT_NAME = "LiberdusSecondary";
-  }
-
+  const CONTRACT_ADDRESS = process.env.LIBERDUS_SECONDARY_ADDRESS;
   if (!CONTRACT_ADDRESS) {
-    if (CONTRACT_TYPE === "PRIMARY") {
-      throw new Error("Set LIBERDUS_TOKEN_ADDRESS in your .env file");
-    }
     throw new Error("Set LIBERDUS_SECONDARY_ADDRESS in your .env file");
   }
 
@@ -33,27 +15,14 @@ async function main() {
 
   console.log("Using account:", deployer.address);
   console.log("Chain ID:", chainId);
-  console.log("Contract Type:", CONTRACT_TYPE);
   console.log("Contract Address:", CONTRACT_ADDRESS);
 
-  // Attach to deployed contract
-  const contract = await hre.ethers.getContractAt(CONTRACT_NAME, CONTRACT_ADDRESS);
+  const contract = await hre.ethers.getContractAt("LiberdusSecondary", CONTRACT_ADDRESS);
 
-
-
-  // Verify state (only primary contract has isPreLaunch)
-  if (CONTRACT_TYPE === "PRIMARY") {
-    const isPreLaunch = await contract.isPreLaunch();
-    console.log("isPreLaunch:", isPreLaunch);
-    if (isPreLaunch) {
-      throw new Error("Contract is still in pre-launch mode. Redeploy with updated constructor.");
-    }
-  } else {
-    const bridgeInEnabled = await contract.bridgeInEnabled();
-    console.log("bridgeInEnabled:", bridgeInEnabled);
-    if (!bridgeInEnabled) {
-      throw new Error("Secondary bridgeIn is disabled. Enable it via multisig first.");
-    }
+  const bridgeInEnabled = await contract.bridgeInEnabled();
+  console.log("bridgeInEnabled:", bridgeInEnabled);
+  if (!bridgeInEnabled) {
+    throw new Error("bridgeIn is disabled. Enable it via multisig first.");
   }
 
   const bridgeInCaller = await contract.bridgeInCaller();
@@ -62,26 +31,18 @@ async function main() {
     throw new Error(`Deployer is not the bridgeInCaller. Expected ${deployer.address}, got ${bridgeInCaller}`);
   }
 
-  console.log(`\nBridging in ${ethers.formatUnits(amount, 18)} LIB to ${recipient}...`);
-
-  let tx;
-  if (CONTRACT_TYPE === "PRIMARY") {
-    tx = await contract.bridgeIn(recipient, amount, chainId, ethers.id(txId));
-  } else {
-    const hashedTxId = ethers.id(txId);
-    const isProcessed = await contract.processedTxIds(hashedTxId);
-    if (isProcessed) {
-      throw new Error(`Transaction ID ${txId} (hash: ${hashedTxId}) has already been processed.`);
-    }
-
-    tx = await contract.bridgeIn(recipient, amount, chainId, ethers.id(txId));
+  const hashedTxId = ethers.id(txId);
+  const isProcessed = await contract.processedTxIds(hashedTxId);
+  if (isProcessed) {
+    throw new Error(`Transaction ID ${txId} (hash: ${hashedTxId}) has already been processed.`);
   }
 
+  console.log(`\nBridging in ${ethers.formatUnits(amount, 18)} LIB to ${recipient}...`);
+  const tx = await contract.bridgeIn(recipient, amount, chainId, ethers.id(txId));
   const receipt = await tx.wait();
   console.log("Transaction hash:", receipt.hash);
 
-  let balance;
-  balance = await contract.balanceOf(recipient);
+  const balance = await contract.balanceOf(recipient);
   console.log("Balance:", ethers.formatUnits(balance, 18), "LIB");
 }
 
