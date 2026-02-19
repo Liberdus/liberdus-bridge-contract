@@ -13,6 +13,11 @@ async function main() {
     throw new Error("Set LIBERDUS_TOKEN_ADDRESS, LIBERDUS_SECONDARY_ADDRESS, and VAULT_ADDRESS in .env");
   }
 
+  // --- CONFIGURATION ---
+  // Simulate two chains
+  const CHAIN_ID_PRIMARY = 31337;
+  const CHAIN_ID_SECONDARY = 31338;
+
   const balanceOnly = process.env.BALANCE_ONLY === "true" || process.env.BALANCE_ONLY === "1";
 
   console.log("Interacting with contracts...");

@@ -2,8 +2,8 @@ const hre = require("hardhat");
 const { ZeroAddress } = require("hardhat").ethers;
 const { ethers } = hre;
 const SECONDARY_OP = Object.freeze({
-  SET_BRIDGE_IN_CALLER: 2,
-  SET_BRIDGE_OUT_ENABLED: 6,
+  SET_BRIDGE_IN_CALLER: 0,
+  SET_BRIDGE_OUT_ENABLED: 4,
 });
 
 async function main() {
@@ -14,6 +14,12 @@ async function main() {
     "Account balance:",
     (await deployer.provider.getBalance(deployer.address)).toString(),
   );
+
+
+  // --- CONFIGURATION ---
+  // Simulate two chains
+  const CHAIN_ID_PRIMARY = 31337;
+  const CHAIN_ID_SECONDARY = 31338;
 
   let signerAddresses;
   let signers;

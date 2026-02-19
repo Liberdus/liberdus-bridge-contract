@@ -36,12 +36,12 @@ async function main() {
       DISTRIBUTE_TOKENS: 8,
     }),
     SECONDARY: Object.freeze({
-      SET_BRIDGE_IN_CALLER: 2,
-      SET_BRIDGE_IN_ENABLED: 5,
-      SET_BRIDGE_OUT_ENABLED: 6,
+      SET_BRIDGE_IN_CALLER: 0,
+      SET_BRIDGE_IN_ENABLED: 3,
+      SET_BRIDGE_OUT_ENABLED: 4,
     }),
     VAULT: Object.freeze({
-      SET_BRIDGE_OUT_ENABLED: 5,
+      SET_BRIDGE_OUT_ENABLED: 2,
     }),
   };
 
