@@ -46,7 +46,6 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
  
     address[4] public signers;
     uint256 public constant REQUIRED_SIGNATURES = 3;
-    uint256 public constant DEFAULT_CHAIN_ID = 0; // Reserved for Liberdus Network
     uint256 public immutable chainId;
 
     // Defining events for the contract
@@ -92,8 +91,7 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
         uint256 amount,
         address indexed targetAddress,
         uint256 indexed chainId,
-        uint256 timestamp,
-        uint256 destinationChainId
+        uint256 timestamp
     );
 
     event BridgedIn(
@@ -101,8 +99,7 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
         uint256 amount,
         uint256 indexed chainId,
         bytes32 indexed txId,
-        uint256 timestamp,
-        uint256 sourceChainId
+        uint256 timestamp
     );
 
     event SignerUpdated(
@@ -303,27 +300,16 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
     }
 
     function bridgeOut(uint256 amount, address targetAddress, uint256 _chainId) public whenNotPaused {
-        bridgeOut(amount, targetAddress, _chainId, DEFAULT_CHAIN_ID);
-    }
-
-    function bridgeOut(uint256 amount, address targetAddress, uint256 _chainId, uint256 destinationChainId) public whenNotPaused {
         require(bridgeOutEnabled, "Bridge-out disabled");
         require(_chainId == chainId, "Invalid chain ID");
-        if (destinationChainId != DEFAULT_CHAIN_ID) {
-            require(destinationChainId != _chainId, "Destination chain must differ from source chain");
-        }
         require(amount > 0, "Cannot bridge out zero tokens");
         require(amount <= maxBridgeInAmount, "Amount exceeds bridge-in limit");
         require(amount <= balanceOf(msg.sender), "Insufficient balance");
         _burn(msg.sender, amount);
-        emit BridgedOut(msg.sender, amount, targetAddress, _chainId, block.timestamp, destinationChainId);
+        emit BridgedOut(msg.sender, amount, targetAddress, _chainId, block.timestamp);
     }
 
     function bridgeIn(address to, uint256 amount, uint256 _chainId, bytes32 txId) public onlyBridgeInCaller whenNotPaused {
-        bridgeIn(to, amount, _chainId, txId, DEFAULT_CHAIN_ID);
-    }
-
-    function bridgeIn(address to, uint256 amount, uint256 _chainId, bytes32 txId, uint256 sourceChainId) public onlyBridgeInCaller whenNotPaused {
         require(bridgeInEnabled, "Bridge-in disabled");
         require(_chainId == chainId, "Invalid chain ID");
         require(amount > 0, "Cannot bridge in zero tokens");
@@ -334,7 +320,7 @@ contract LiberdusSecondary is ERC20, Pausable, ReentrancyGuard, Ownable {
         _mint(to, amount);
         processedTxIds[txId] = true;
         lastBridgeInTime = block.timestamp;
-        emit BridgedIn(to, amount, _chainId, txId, block.timestamp, sourceChainId);
+        emit BridgedIn(to, amount, _chainId, txId, block.timestamp);
     }
 
     function isSigner(address account) public view returns (bool) {
