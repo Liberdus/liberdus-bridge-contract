@@ -2,21 +2,18 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract Vault is Pausable, ReentrancyGuard, Ownable {
+contract Vault is ReentrancyGuard, Ownable {
     using ECDSA for bytes32;
 
     enum OperationType {
-        Pause,
-        Unpause,
         SetBridgeOutAmount,
         UpdateSigner,
-        RelinquishTokens,
-        SetBridgeOutEnabled
+        SetBridgeOutEnabled,
+        RelinquishTokens
     }
 
     struct Operation {
@@ -38,6 +35,7 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
     IERC20 public immutable token;
     uint256 public maxBridgeOutAmount = 10_000 * 10**18;
     bool public bridgeOutEnabled = true;
+    bool public halted = false;
 
     address[4] public signers;
     uint256 public constant REQUIRED_SIGNATURES = 3;
@@ -101,8 +99,15 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
         uint256 timestamp
     );
 
+    event VaultHalted(uint256 timestamp);
+
     modifier onlySigner() {
         require(isSigner(msg.sender), "Not a signer");
+        _;
+    }
+
+    modifier whenNotHalted() {
+        require(!halted, "Vault is permanently halted");
         _;
     }
 
@@ -128,7 +133,7 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
         address target,
         uint256 value,
         bytes memory data
-    ) public returns (bytes32) {
+    ) public whenNotHalted returns (bytes32) {
         require(isSigner(msg.sender) || owner() == msg.sender, "Not authorized to request operation");
 
         if (opType == OperationType.UpdateSigner) {
@@ -163,7 +168,7 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
         return operationId;
     }
 
-    function submitSignature(bytes32 operationId, bytes memory signature) public {
+    function submitSignature(bytes32 operationId, bytes memory signature) public whenNotHalted {
         require(isSigner(msg.sender), "Only signers can submit signatures");
         Operation storage op = operations[operationId];
         require(!op.executed, "Operation already executed");
@@ -205,10 +210,6 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
 
         if (op.opType == OperationType.UpdateSigner) {
             _executeUpdateSigner(operationId, op.target, address(uint160(op.value)));
-        } else if (op.opType == OperationType.Pause) {
-            _pause();
-        } else if (op.opType == OperationType.Unpause) {
-            _unpause();
         } else if (op.opType == OperationType.SetBridgeOutAmount) {
             _executeSetBridgeOutAmount(operationId, op.value);
         } else if (op.opType == OperationType.RelinquishTokens) {
@@ -253,7 +254,9 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
         uint256 balance = token.balanceOf(address(this));
         require(balance > 0, "No tokens to relinquish");
         require(token.transfer(address(token), balance), "Token transfer failed");
+        halted = true;
         emit TokensRelinquished(address(token), balance, block.timestamp);
+        emit VaultHalted(block.timestamp);
     }
 
     function _executeSetBridgeOutEnabled(bytes32 operationId, bool enabled) internal {
@@ -264,7 +267,7 @@ contract Vault is Pausable, ReentrancyGuard, Ownable {
 
     // --------- BRIDGE OUT ---------
 
-    function bridgeOut(uint256 amount, address targetAddress, uint256 _chainId) public whenNotPaused {
+    function bridgeOut(uint256 amount, address targetAddress, uint256 _chainId) public whenNotHalted {
         require(bridgeOutEnabled, "Bridge-out disabled");
         require(_chainId == chainId, "Invalid chain ID");
         require(amount > 0, "Cannot bridge out zero tokens");

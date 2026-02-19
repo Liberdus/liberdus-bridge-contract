@@ -1,11 +1,10 @@
 const hre = require("hardhat");
 const { ethers } = hre;
 const OP = Object.freeze({
-  PAUSE: 0,
-  UNPAUSE: 1,
-  SET_BRIDGE_OUT_AMOUNT: 2,
-  RELINQUISH_TOKENS: 4,
-  SET_BRIDGE_OUT_ENABLED: 5,
+  SET_BRIDGE_OUT_AMOUNT: 0,
+  UPDATE_SIGNER: 1,
+  SET_BRIDGE_OUT_ENABLED: 2,
+  RELINQUISH_TOKENS: 3,
 });
 
 async function requestAndSignOperation(contract, signers, operationType, target, value, data) {
@@ -31,7 +30,7 @@ async function requestAndSignOperation(contract, signers, operationType, target,
 async function main() {
   const VAULT_ADDRESS = process.env.VAULT_ADDRESS;
   const LIBERDUS_ADDRESS = process.env.LIBERDUS_TOKEN_ADDRESS;
-  const ACTION = process.env.ACTION || "balance"; // balance, bridgeOut, relinquish, setBridgeOutAmount, setBridgeOutEnabled, pause, unpause
+  const ACTION = process.env.ACTION || "balance"; // balance, bridgeOut, relinquish, setBridgeOutAmount, setBridgeOutEnabled
 
   if (!VAULT_ADDRESS) {
     throw new Error("Set VAULT_ADDRESS in your .env file");
@@ -153,31 +152,16 @@ async function main() {
   if (ACTION === "relinquish") {
     const vaultBalance = await vault.getVaultBalance();
     console.log(`\nVault Balance: ${ethers.formatUnits(vaultBalance, 18)} LIB`);
-    console.log("Relinquishing all tokens to Liberdus contract...");
+    console.log("Relinquishing all tokens to Liberdus contract and permanently halting vault...");
 
     await requestAndSignOperation(vault, signers, OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x");
 
     console.log(`Vault Balance after relinquish: ${ethers.formatUnits(await vault.getVaultBalance(), 18)} LIB`);
+    console.log(`Vault halted: ${await vault.halted()}`);
     return;
   }
 
-  // --- PAUSE ---
-  if (ACTION === "pause") {
-    console.log("\nPausing vault...");
-    await requestAndSignOperation(vault, signers, OP.PAUSE, ethers.ZeroAddress, 0, "0x");
-    console.log("Vault paused.");
-    return;
-  }
-
-  // --- UNPAUSE ---
-  if (ACTION === "unpause") {
-    console.log("\nUnpausing vault...");
-    await requestAndSignOperation(vault, signers, OP.UNPAUSE, ethers.ZeroAddress, 0, "0x");
-    console.log("Vault unpaused.");
-    return;
-  }
-
-  console.error(`Unknown action: ${ACTION}. Use one of: balance, bridgeOut, setBridgeOutAmount, setBridgeOutEnabled, relinquish, pause, unpause`);
+  console.error(`Unknown action: ${ACTION}. Use one of: balance, bridgeOut, setBridgeOutAmount, setBridgeOutEnabled, relinquish`);
 }
 
 main()

@@ -11,12 +11,10 @@ describe("Vault", function () {
   let signerAddresses;
   let chainId;
   const OP = Object.freeze({
-    PAUSE: 0,
-    UNPAUSE: 1,
-    SET_BRIDGE_OUT_AMOUNT: 2,
-    UPDATE_SIGNER: 3,
-    RELINQUISH_TOKENS: 4,
-    SET_BRIDGE_OUT_ENABLED: 5,
+    SET_BRIDGE_OUT_AMOUNT: 0,
+    UPDATE_SIGNER: 1,
+    SET_BRIDGE_OUT_ENABLED: 2,
+    RELINQUISH_TOKENS: 3,
   });
 
   async function requestAndSignOperation(contract, operationType, target, value, data) {
@@ -155,18 +153,6 @@ describe("Vault", function () {
       ).to.be.revertedWith("Amount exceeds bridge-out limit");
     });
 
-    it("Should reject bridging out when paused", async function () {
-      const bridgeAmount = ethers.parseUnits("1000", 18);
-      await liberdus.connect(owner).approve(await vault.getAddress(), bridgeAmount);
-
-      // Pause vault
-      await requestAndSignOperation(vault, OP.PAUSE, ethers.ZeroAddress, 0, "0x");
-
-      await expect(
-        vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId)
-      ).to.be.revertedWithCustomError(vault, "EnforcedPause");
-    });
-
     it("Should reject bridging out when bridgeOut is disabled", async function () {
       const bridgeAmount = ethers.parseUnits("1000", 18);
       await liberdus.connect(owner).approve(await vault.getAddress(), bridgeAmount);
@@ -214,7 +200,6 @@ describe("Vault", function () {
       const liberdusAddress = await liberdus.getAddress();
       const liberdusBalanceBefore = await liberdus.balanceOf(liberdusAddress);
 
-      // RelinquishTokens is OperationType 5
       await requestAndSignOperation(vault, OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x");
 
       expect(await vault.getVaultBalance()).to.equal(0);
@@ -233,31 +218,52 @@ describe("Vault", function () {
         await vault.connect(signers[i]).submitSignature(operationId, signature);
       }
 
-      // Third signature triggers execution
+      // Third signature triggers execution and emits both events
       const messageHash = await vault.getOperationHash(operationId);
       const signature = await signers[2].signMessage(ethers.getBytes(messageHash));
       await expect(vault.connect(signers[2]).submitSignature(operationId, signature))
-        .to.emit(vault, "TokensRelinquished");
+        .to.emit(vault, "TokensRelinquished")
+        .and.to.emit(vault, "VaultHalted");
     });
 
-    it("Should relinquish tokens even when paused", async function () {
-      // Pause vault
-      await requestAndSignOperation(vault, OP.PAUSE, ethers.ZeroAddress, 0, "0x");
-
-      // RelinquishTokens should still work
+    it("Should set halted flag after relinquish", async function () {
+      expect(await vault.halted()).to.equal(false);
       await requestAndSignOperation(vault, OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x");
-
-      expect(await vault.getVaultBalance()).to.equal(0);
+      expect(await vault.halted()).to.equal(true);
     });
 
-    it("Should reject relinquish when vault has no tokens", async function () {
-      // First relinquish all tokens
+    it("Should block bridgeOut after relinquish", async function () {
       await requestAndSignOperation(vault, OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x");
 
-      // Second relinquish should fail
+      const bridgeAmount = ethers.parseUnits("100", 18);
       await expect(
-        requestAndSignOperation(vault, OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x")
-      ).to.be.revertedWith("No tokens to relinquish");
+        vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId)
+      ).to.be.revertedWith("Vault is permanently halted");
+    });
+
+    it("Should block requestOperation after relinquish", async function () {
+      await requestAndSignOperation(vault, OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x");
+
+      await expect(
+        vault.requestOperation(OP.SET_BRIDGE_OUT_AMOUNT, ethers.ZeroAddress, ethers.parseUnits("20000", 18), "0x")
+      ).to.be.revertedWith("Vault is permanently halted");
+    });
+
+    it("Should block submitSignature after relinquish", async function () {
+      // Request an operation before relinquish
+      const tx = await vault.requestOperation(OP.SET_BRIDGE_OUT_AMOUNT, ethers.ZeroAddress, ethers.parseUnits("20000", 18), "0x");
+      const receipt = await tx.wait();
+      const operationId = receipt.logs.find(log => log.fragment.name === 'OperationRequested').args.operationId;
+
+      // Relinquish and halt the vault
+      await requestAndSignOperation(vault, OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x");
+
+      // Try to submit a signature on the pre-existing operation
+      const messageHash = await vault.getOperationHash(operationId);
+      const signature = await signers[0].signMessage(ethers.getBytes(messageHash));
+      await expect(
+        vault.connect(signers[0]).submitSignature(operationId, signature)
+      ).to.be.revertedWith("Vault is permanently halted");
     });
   });
 
@@ -268,21 +274,11 @@ describe("Vault", function () {
       expect(await vault.maxBridgeOutAmount()).to.equal(newMaxAmount);
     });
 
-    it("Should pause and unpause via multisig", async function () {
-      await setupLiberdusWithTokens();
-      const bridgeAmount = ethers.parseUnits("1000", 18);
-      await liberdus.connect(owner).approve(await vault.getAddress(), bridgeAmount);
-
-      // Pause
-      await requestAndSignOperation(vault, OP.PAUSE, ethers.ZeroAddress, 0, "0x");
+    it("Should reject relinquish when vault has no tokens", async function () {
+      // Vault is not funded in this describe block's beforeEach
       await expect(
-        vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId)
-      ).to.be.revertedWithCustomError(vault, "EnforcedPause");
-
-      // Unpause
-      await requestAndSignOperation(vault, OP.UNPAUSE, ethers.ZeroAddress, 0, "0x");
-      await vault.connect(owner).bridgeOut(bridgeAmount, recipient.address, chainId);
-      expect(await vault.getVaultBalance()).to.equal(bridgeAmount);
+        requestAndSignOperation(vault, OP.RELINQUISH_TOKENS, ethers.ZeroAddress, 0, "0x")
+      ).to.be.revertedWith("No tokens to relinquish");
     });
 
     it("Should update signer correctly", async function () {
