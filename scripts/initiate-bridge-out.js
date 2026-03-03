@@ -24,6 +24,12 @@ async function main() {
     throw new Error("bridgeOut is disabled. Enable it via multisig first.");
   }
 
+  const minBridgeOutAmount = await contract.minBridgeOutAmount();
+  console.log("minBridgeOutAmount:", ethers.formatUnits(minBridgeOutAmount, 18), "LIB");
+  if (amount < minBridgeOutAmount) {
+    throw new Error(`Amount ${ethers.formatUnits(amount, 18)} LIB is below the minimum bridge-out amount of ${ethers.formatUnits(minBridgeOutAmount, 18)} LIB.`);
+  }
+
   const balance = await contract.balanceOf(deployer.address);
   console.log("Current Balance:", ethers.formatUnits(balance, 18), "LIB");
   if (balance < amount) {
