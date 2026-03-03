@@ -20,11 +20,13 @@ async function main() {
   const ETH_AMOUNT = process.env.ETH_AMOUNT || "10";
   const SECONDARY_BRIDGE_IN_ENABLED = process.env.SECONDARY_BRIDGE_IN_ENABLED;
   const SECONDARY_BRIDGE_OUT_ENABLED = process.env.SECONDARY_BRIDGE_OUT_ENABLED;
+  const SECONDARY_MIN_BRIDGE_OUT_AMOUNT = process.env.SECONDARY_MIN_BRIDGE_OUT_AMOUNT;
 
   const OP_TYPES = Object.freeze({
     SET_BRIDGE_IN_CALLER: 0,
     SET_BRIDGE_IN_ENABLED: 3,
     SET_BRIDGE_OUT_ENABLED: 4,
+    SET_MIN_BRIDGE_OUT_AMOUNT: 5,
   });
 
   let signers;
@@ -125,6 +127,19 @@ async function main() {
       console.log(`--- Setting bridgeOutEnabled to ${desiredBridgeOutEnabled} ---`);
       const data = ethers.AbiCoder.defaultAbiCoder().encode(["bool"], [desiredBridgeOutEnabled]);
       await requestAndSignOperation(liberdusSecondary, OP_TYPES.SET_BRIDGE_OUT_ENABLED, ethers.ZeroAddress, 0, data);
+      console.log("  Done.");
+    }
+  }
+
+
+  if (SECONDARY_MIN_BRIDGE_OUT_AMOUNT) {
+    const newMin = ethers.parseUnits(SECONDARY_MIN_BRIDGE_OUT_AMOUNT, 18);
+    const currentMin = await liberdusSecondary.minBridgeOutAmount();
+    if (currentMin === newMin) {
+      console.log(`Secondary minBridgeOutAmount already ${SECONDARY_MIN_BRIDGE_OUT_AMOUNT} LIB, skipping.`);
+    } else {
+      console.log(`--- Setting Secondary minBridgeOutAmount to ${SECONDARY_MIN_BRIDGE_OUT_AMOUNT} LIB ---`);
+      await requestAndSignOperation(liberdusSecondary, OP_TYPES.SECONDARY.SET_MIN_BRIDGE_OUT_AMOUNT, ethers.ZeroAddress, newMin, "0x");
       console.log("  Done.");
     }
   }
